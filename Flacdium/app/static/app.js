@@ -7,10 +7,17 @@ const spectrumHeading = document.querySelector("[data-spectrum-heading]");
 const spectrumMeta = document.querySelector("[data-spectrum-meta]");
 const spectrumStatus = document.querySelector("[data-spectrum-status]");
 const guestPopup = document.querySelector("[data-guest-popup]");
+const uploadForm = document.querySelector("[data-upload-form]");
+const uploadSubmit = document.querySelector("[data-upload-submit]");
+const uploadProgress = document.querySelector("[data-upload-progress]");
+const uploadProgressText = document.querySelector("[data-upload-progress-text]");
+const uploadProgressFill = document.querySelector("[data-upload-progress-fill]");
+const uploadProgressPercent = document.querySelector("[data-upload-progress-percent]");
 const nextFields = Array.from(document.querySelectorAll("[data-next-field]"));
 const authTabs = Array.from(document.querySelectorAll("[data-auth-tab]"));
 const authForms = Array.from(document.querySelectorAll("[data-auth-form]"));
 let spectrumRequestId = 0;
+let uploadInFlight = false;
 
 function setNextTarget(target) {
   nextFields.forEach((input) => {
@@ -111,6 +118,24 @@ function closeSpectrum() {
   }
 }
 
+function setUploadProgress(percent, text) {
+  if (!uploadProgress || !uploadProgressFill || !uploadProgressPercent) return;
+  const clamped = Math.max(0, Math.min(100, percent));
+  uploadProgress.classList.add("is-visible");
+  uploadProgressFill.style.width = `${clamped}%`;
+  uploadProgressPercent.textContent = `${clamped}%`;
+  if (uploadProgressText && text) {
+    uploadProgressText.textContent = text;
+  }
+}
+
+function hideUploadProgress() {
+  if (!uploadProgress) return;
+  uploadProgress.classList.remove("is-visible");
+  if (uploadProgressFill) uploadProgressFill.style.width = "0";
+  if (uploadProgressPercent) uploadProgressPercent.textContent = "0%";
+}
+
 document.querySelectorAll("[data-open-auth]").forEach((button) => {
   button.addEventListener("click", () => openAuth("login"));
 });
@@ -173,4 +198,75 @@ if (spectrumOverlay) {
   spectrumOverlay.addEventListener("click", (event) => {
     if (event.target === spectrumOverlay) closeSpectrum();
   });
+}
+
+if (uploadForm && window.XMLHttpRequest && window.FormData) {
+  uploadForm.addEventListener("submit", (event) => {
+    if (uploadInFlight) {
+      event.preventDefault();
+      return;
+    }
+
+    const formData = new FormData(uploadForm);
+    const flacFiles = formData.getAll("files").filter((value) => value instanceof File && value.name);
+    const zipFile = formData.get("zip_file");
+    if (flacFiles.length === 0 && (!(zipFile instanceof File) || !zipFile.name)) {
+      return;
+    }
+
+    event.preventDefault();
+    uploadInFlight = true;
+    if (uploadSubmit) uploadSubmit.disabled = true;
+
+    const uploadingText = uploadForm.dataset.uploadUploading || "Uploading files...";
+    const processingText = uploadForm.dataset.uploadProcessing || "Upload finished, ingesting...";
+    const errorText = uploadForm.dataset.uploadError || "Upload failed.";
+    setUploadProgress(0, uploadingText);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open(uploadForm.method || "POST", uploadForm.action, true);
+    xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+    xhr.responseType = "text";
+
+    xhr.upload.addEventListener("progress", (progressEvent) => {
+      if (!progressEvent.lengthComputable) {
+        setUploadProgress(0, uploadingText);
+        return;
+      }
+      const percent = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+      setUploadProgress(percent, uploadingText);
+    });
+
+    xhr.upload.addEventListener("load", () => {
+      setUploadProgress(100, processingText);
+    });
+
+    xhr.addEventListener("load", () => {
+      uploadInFlight = false;
+      if (xhr.status >= 200 && xhr.status < 400 && typeof xhr.responseText === "string" && xhr.responseText) {
+        document.open();
+        document.write(xhr.responseText);
+        document.close();
+        return;
+      }
+      if (uploadSubmit) uploadSubmit.disabled = false;
+      setUploadProgress(100, errorText);
+    });
+
+    xhr.addEventListener("error", () => {
+      uploadInFlight = false;
+      if (uploadSubmit) uploadSubmit.disabled = false;
+      setUploadProgress(100, errorText);
+    });
+
+    xhr.addEventListener("abort", () => {
+      uploadInFlight = false;
+      if (uploadSubmit) uploadSubmit.disabled = false;
+      setUploadProgress(100, errorText);
+    });
+
+    xhr.send(formData);
+  });
+} else {
+  hideUploadProgress();
 }

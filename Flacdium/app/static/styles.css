@@ -24,13 +24,11 @@ body {
   color: var(--text);
   font: 12px/1.28 Tahoma, Verdana, sans-serif;
   background:
-    repeating-linear-gradient(
-      0deg,
+    repeating-linear-gradient(0deg,
       rgba(65, 81, 104, 0.04),
       rgba(65, 81, 104, 0.04) 1px,
       transparent 1px,
-      transparent 19px
-    ),
+      transparent 19px),
     var(--bg);
 }
 
@@ -76,7 +74,9 @@ button {
   gap: 12px;
   padding: 4px 8px;
   border-bottom: 1px solid #6f8097;
-  background: linear-gradient(180deg, #e8edf4, #d7dee8);
+  background:
+    linear-gradient(rgba(233, 242, 245, 0.84), rgba(219, 233, 239, 0.84)),
+    url("/static/header-blossom.jpg") center 32% / cover no-repeat;
 }
 
 .brand-lockup {
@@ -98,8 +98,12 @@ button {
 }
 
 .brand-icon {
-  width: 16px;
-  height: 16px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #7388a2;
+  background: rgba(249, 251, 254, 0.88);
+  object-fit: cover;
+  object-position: center;
 }
 
 .brand-mark {
@@ -249,6 +253,54 @@ button {
   border: 1px solid #8fa0b5;
   background: #f8fbff;
   box-shadow: 2px 2px 0 rgba(44, 68, 96, 0.14);
+}
+
+.upload-progress {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 32;
+  width: min(320px, calc(100vw - 36px));
+  display: none;
+  padding: 8px;
+  border: 1px solid #8fa0b5;
+  background: #f8fbff;
+  box-shadow: 2px 2px 0 rgba(44, 68, 96, 0.14);
+}
+
+.upload-progress.is-visible {
+  display: block;
+}
+
+.upload-progress-title,
+.upload-progress-percent {
+  color: var(--navy-strong);
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.upload-progress-text {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.upload-progress-bar {
+  height: 10px;
+  margin-top: 6px;
+  border: 1px solid #9dafc2;
+  background: #edf2f8;
+}
+
+.upload-progress-fill {
+  width: 0;
+  height: 100%;
+  background: linear-gradient(180deg, #7ac08e, #49865e);
+}
+
+.upload-progress-percent {
+  margin-top: 5px;
+  text-align: right;
 }
 
 .guest-popup-title,
@@ -905,6 +957,7 @@ select:disabled {
 }
 
 @media (max-width: 1080px) {
+
   .panel-topline,
   .utility-row {
     flex-direction: column;
@@ -913,6 +966,7 @@ select:disabled {
 }
 
 @media (max-width: 960px) {
+
   .masthead,
   .stats-strip,
   .upload-grid,

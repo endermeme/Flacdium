@@ -156,6 +156,10 @@ TEXT: dict[str, dict[str, str]] = {
         "rights_confirmed": "tôi sure là nhạc ngon",
         "upload_note": "chỉ nhận flac | bắt buộc artist, album, title, tracknumber, date, cover art nhúng",
         "upload_cta": "đẩy vào index",
+        "upload_progress_title": "tiến trình upload",
+        "upload_progress_uploading": "đang tải file lên...",
+        "upload_progress_processing": "đã tải xong, đang nhập vào kho...",
+        "upload_progress_error": "upload thất bại hoặc bị ngắt",
         "filters": "bộ lọc duyệt",
         "find": "tìm",
         "find_placeholder": "ca sĩ / album / bài / thể loại",
@@ -348,6 +352,10 @@ TEXT: dict[str, dict[str, str]] = {
         "rights_confirmed": "i know what tf i'm doing rn",
         "upload_note": "flac only | requires artist, album, title, tracknumber, date, embedded cover art",
         "upload_cta": "push to index",
+        "upload_progress_title": "upload progress",
+        "upload_progress_uploading": "uploading files...",
+        "upload_progress_processing": "upload finished, ingesting into the library...",
+        "upload_progress_error": "upload failed or was interrupted",
         "filters": "browse filters",
         "find": "find",
         "find_placeholder": "artist / album / track / genre",
@@ -1885,6 +1893,7 @@ async def process_direct_uploads(
             await upload.close()
         return
 
+    staged_uploads: list[tuple[str, Path]] = []
     total_bytes = 0
     for upload in files:
         if not upload.filename:
@@ -1904,14 +1913,30 @@ async def process_direct_uploads(
             )
             total_bytes += file_size
             if total_bytes > MAX_UPLOAD_TOTAL_BYTES:
-                raise IngestError("upload_total_too_large")
-            meta = ingest_flac(tmp_path, upload.filename, uploader)
+                tmp_path.unlink(missing_ok=True)
+                tmp_path = None
+                rejected.append(text_for(lang)["upload_total_too_large"])
+                for staged_name, staged_path in staged_uploads:
+                    staged_path.unlink(missing_ok=True)
+                staged_uploads.clear()
+                break
+            staged_uploads.append((upload.filename, tmp_path))
+            tmp_path = None
+        except IngestError as exc:
+            rejected.append(f"{upload.filename}: {describe_error(str(exc), lang)}")
+        finally:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
+
+    for original_filename, tmp_path in staged_uploads:
+        try:
+            meta = ingest_flac(tmp_path, original_filename, uploader)
             accepted.append(acceptance_label(meta, lang))
         except IngestError as exc:
             if should_queue_review_for_error(str(exc)):
                 queue_review_item(
                     source_path=tmp_path,
-                    original_filename=upload.filename,
+                    original_filename=original_filename,
                     uploader=uploader,
                     reason=str(exc),
                     suggested_action="import_anyway",
@@ -1926,10 +1951,9 @@ async def process_direct_uploads(
                     )
                 )
             else:
-                rejected.append(f"{upload.filename}: {describe_error(str(exc), lang)}")
+                rejected.append(f"{original_filename}: {describe_error(str(exc), lang)}")
         finally:
-            if tmp_path is not None:
-                tmp_path.unlink(missing_ok=True)
+            tmp_path.unlink(missing_ok=True)
 
 
 async def process_zip_upload(

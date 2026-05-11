@@ -139,6 +139,15 @@
     </div>
   </div>
 
+  <div class="upload-progress" data-upload-progress>
+    <div class="upload-progress-title">{{ t["upload_progress_title"] }}</div>
+    <div class="upload-progress-text" data-upload-progress-text>{{ t["upload_progress_uploading"] }}</div>
+    <div class="upload-progress-bar">
+      <div class="upload-progress-fill" data-upload-progress-fill></div>
+    </div>
+    <div class="upload-progress-percent" data-upload-progress-percent>0%</div>
+  </div>
+
   <section class="dashboard">
     <div class="stats-strip">
       <span><strong>{{ summary["tracks"] }}</strong> {{ t["stats_tracks"] }}</span>
@@ -147,7 +156,16 @@
       <span><strong>{{ summary["uploaders"] }}</strong> {{ t["stats_uploaders"] }}</span>
     </div>
 
-    <form class="upload-panel" method="post" action="/upload" enctype="multipart/form-data">
+    <form
+      class="upload-panel"
+      method="post"
+      action="/upload"
+      enctype="multipart/form-data"
+      data-upload-form
+      data-upload-uploading="{{ t['upload_progress_uploading'] }}"
+      data-upload-processing="{{ t['upload_progress_processing'] }}"
+      data-upload-error="{{ t['upload_progress_error'] }}"
+    >
       <div class="panel-topline">
         <div class="panel-title">{{ t["upload_lane"] }}</div>
       </div>
@@ -172,7 +190,7 @@
         </label>
       </div>
       <div class="toolbar-row">
-        <button type="submit" {% if not current_user %}disabled{% endif %}>{{ t["upload_cta"] }}</button>
+        <button type="submit" data-upload-submit {% if not current_user %}disabled{% endif %}>{{ t["upload_cta"] }}</button>
       </div>
     </form>
 
