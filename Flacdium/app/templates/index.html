@@ -172,6 +172,7 @@
       <div class="upload-grid">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="lang" value="{{ lang }}">
+        <input type="hidden" name="upload_batch_id" value="" data-upload-batch-id>
         <label>
           <span>{{ t["uploader_label"] }}</span>
           <input type="text" value="{{ current_user['username'] if current_user else t['guest'] }}" readonly>

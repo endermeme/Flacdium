@@ -34,6 +34,9 @@ REVIEW_DIR = TMP_DIR / "review"
 SPECTRUM_DIR = TMP_DIR / "spectrum"
 DB_PATH = DATA_DIR / "flacdium.sqlite3"
 
+for folder in (DATA_DIR, LIBRARY_DIR, OBJECTS_DIR, COVERS_DIR, TMP_DIR, REVIEW_DIR, SPECTRUM_DIR):
+    folder.mkdir(parents=True, exist_ok=True)
+
 
 def load_project_env() -> None:
     env_path = BASE_DIR / ".env"
@@ -1180,6 +1183,32 @@ def check_rate_limit(request: Request, action: str, scope_key: str, limit: int, 
         )
 
 
+def has_recent_request_event(action: str, scope_key: str, window_seconds: int) -> bool:
+    if window_seconds <= 0:
+        return False
+    cutoff = (now_utc() - timedelta(seconds=window_seconds)).isoformat()
+    with get_db() as connection:
+        row = connection.execute(
+            """
+            SELECT 1
+            FROM request_events
+            WHERE action = ? AND scope_key = ? AND created_at >= ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (action, scope_key, cutoff),
+        ).fetchone()
+    return row is not None
+
+
+def record_request_event(action: str, scope_key: str) -> None:
+    with get_db() as connection:
+        connection.execute(
+            "INSERT INTO request_events (action, scope_key, created_at) VALUES (?, ?, ?)",
+            (action, scope_key, now_utc().isoformat()),
+        )
+
+
 def enforce_login_rate_limit(request: Request, username_value: str) -> None:
     ip_address, _ = get_client_ip(request)
     check_rate_limit(request, "login", f"ip:{ip_address}", LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_SECONDS)
@@ -1206,8 +1235,12 @@ def enforce_signup_rate_limit(request: Request, username_value: str) -> None:
         )
 
 
-def enforce_upload_rate_limit(request: Request, username_value: str) -> None:
+def enforce_upload_rate_limit(request: Request, username_value: str, batch_id: str = "") -> None:
     ip_address, _ = get_client_ip(request)
+    if batch_id:
+        batch_scope = f"user:{username_value.lower()}:batch:{batch_id}"
+        if has_recent_request_event("upload_batch", batch_scope, UPLOAD_RATE_WINDOW_SECONDS):
+            return
     check_rate_limit(request, "upload", f"ip:{ip_address}", UPLOAD_RATE_LIMIT, UPLOAD_RATE_WINDOW_SECONDS)
     check_rate_limit(
         request,
@@ -1216,6 +1249,8 @@ def enforce_upload_rate_limit(request: Request, username_value: str) -> None:
         UPLOAD_RATE_LIMIT,
         UPLOAD_RATE_WINDOW_SECONDS,
     )
+    if batch_id:
+        record_request_event("upload_batch", batch_scope)
 
 
 def lookup_cell_location(cell_data: dict[str, str], ip_changed: bool) -> tuple[str, str, str]:
@@ -1404,13 +1439,18 @@ def spectrum_cache_path(track_id: int, file_hash: str) -> Path:
 
 
 def ensure_spectrum_image(track_row: sqlite3.Row) -> Path:
-    file_hash = str(track_row["file_hash"] or "")
-    if not file_hash:
-        raise HTTPException(status_code=404, detail="track hash missing")
     blob_relative = track_row["blob_path"] or track_row["stored_path"]
     source_path = LIBRARY_DIR / blob_relative
     if not source_path.exists():
         raise HTTPException(status_code=404, detail=text_for("vi")["file_missing"])
+    file_hash = str(track_row["file_hash"] or "")
+    if not file_hash:
+        file_hash = hash_file(source_path)
+        with get_db() as connection:
+            connection.execute(
+                "UPDATE tracks SET file_hash = ? WHERE id = ? AND (file_hash IS NULL OR file_hash = '')",
+                (file_hash, int(track_row["id"])),
+            )
     target_path = spectrum_cache_path(int(track_row["id"]), file_hash)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     if target_path.exists():
@@ -1434,6 +1474,12 @@ def ensure_spectrum_image(track_row: sqlite3.Row) -> Path:
         timeout=90,
     )
     return target_path
+
+
+def download_filename_for_track(track_row: sqlite3.Row) -> str:
+    title = safe_segment(str(track_row["title"] or "track"))
+    artist = safe_segment(str(track_row["artist"] or "unknown"))
+    return f"{title} ({artist}).flac"
 
 
 def build_uploader_map(connection: sqlite3.Connection, track_ids: list[int]) -> dict[int, list[str]]:
@@ -2759,6 +2805,7 @@ async def upload(
     request: Request,
     csrf_token: str = Form(...),
     rights_confirmed: bool = Form(False),
+    upload_batch_id: str = Form(""),
     files: list[UploadFile] = File(default_factory=list),
     zip_file: UploadFile | None = File(None),
 ) -> HTMLResponse:
@@ -2781,8 +2828,9 @@ async def upload(
     if not user["is_active"]:
         return render_home(request, notice=t["user_disabled"], status_code=403)
     uploader_name = user["username"]
+    batch_id = re.sub(r"[^a-zA-Z0-9_-]", "", upload_batch_id or "")[:64]
     try:
-        enforce_upload_rate_limit(request, uploader_name)
+        enforce_upload_rate_limit(request, uploader_name, batch_id=batch_id)
     except HTTPException as exc:
         return render_home(request, notice=str(exc.detail), status_code=exc.status_code)
     if not rights_confirmed:
@@ -2817,7 +2865,11 @@ async def download(request: Request, track_id: int) -> FileResponse:
     file_path = LIBRARY_DIR / blob_relative
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=text_for(lang)["file_missing"])
-    return FileResponse(file_path, media_type="audio/flac", filename=file_path.name)
+    return FileResponse(
+        file_path,
+        media_type="audio/flac",
+        filename=download_filename_for_track(row),
+    )
 
 
 @app.get("/spectrum/{track_id}.png")
@@ -2833,7 +2885,11 @@ async def spectrum_image(request: Request, track_id: int) -> FileResponse:
         raise HTTPException(status_code=404, detail=text_for(lang)["file_missing"]) from None
     except subprocess.CalledProcessError as exc:
         raise HTTPException(status_code=500, detail=f"spectrum render failed: {exc}") from exc
-    return FileResponse(image_path, media_type="image/png", filename=image_path.name)
+    return FileResponse(
+        image_path,
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/admin", response_class=HTMLResponse)
