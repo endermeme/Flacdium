@@ -1,0 +1,20 @@
+services:
+  flacdium:
+    build: .
+    container_name: flacdium
+    env_file:
+      - .env
+    init: true
+    ports:
+      - "8000:8000"
+    volumes:
+      - ${FLACDIUM_STATE_DIR:-/var/lib/flacdium}/data:/app/data
+      - ${FLACDIUM_STATE_DIR:-/var/lib/flacdium}/library:/app/library
+      - ${FLACDIUM_STATE_DIR:-/var/lib/flacdium}/covers:/app/covers
+      - ${FLACDIUM_STATE_DIR:-/var/lib/flacdium}/tmp:/app/tmp
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped

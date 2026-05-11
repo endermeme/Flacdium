@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+.env.*
+.git
+.codex
+data/
+library/
+covers/
+tmp/

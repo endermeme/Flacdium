@@ -1,0 +1,31 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log
+*.sqlite3
+*.sqlite3-*
+
+# Runtime data
+data/
+library/
+covers/
+tmp/
+
+# Python caches / local tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editor / OS noise
+.idea/
+.vscode/
+Thumbs.db
+.env
+read.md

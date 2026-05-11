@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Flacdium icon">
+  <rect width="64" height="64" rx="12" fill="#f8f8f6"/>
+  <rect x="8" y="8" width="48" height="48" rx="10" fill="#d9dde3" stroke="#3f536a" stroke-width="2"/>
+  <path d="M18 43V21h21v5H24v17Z" fill="#233a57"/>
+  <path d="M39 21h7a4 4 0 0 1 0 8h-7Z" fill="#6f90b7"/>
+  <circle cx="43.5" cy="42.5" r="6.5" fill="#233a57"/>
+  <circle cx="43.5" cy="42.5" r="2.2" fill="#f8f8f6"/>
+</svg>

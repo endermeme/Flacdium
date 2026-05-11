@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="{{ t['html_lang'] }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ t["site_title"] }}</title>
+    <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+    <link rel="stylesheet" href="/static/styles.css">
+    <script defer src="/static/app.js"></script>
+  </head>
+  <body data-auth-open="{{ '1' if auth_open else '0' }}" data-auth-mode="{{ auth_mode }}" data-user-authenticated="{{ '1' if current_user else '0' }}">
+    <div class="site-shell">
+      <header class="masthead">
+        <div class="brand-lockup">
+          <div class="brand-line">
+            <img class="brand-icon" src="/static/icon.svg" alt="" aria-hidden="true">
+            <div class="brand-mark">FLACDIUM</div>
+          </div>
+        </div>
+
+        <div class="topbar-tools">
+          <nav class="top-nav">
+            <a href="/?lang={{ lang }}">{{ t["nav_browse"] }}</a>
+            <a href="/?sort=newest&lang={{ lang }}">{{ t["nav_latest"] }}</a>
+            <a href="/?sort=artist&lang={{ lang }}">{{ t["nav_artists"] }}</a>
+            <a href="/?sort=album&lang={{ lang }}">{{ t["nav_albums"] }}</a>
+            <a href="/?sort=uploader&lang={{ lang }}">{{ t["nav_uploaders"] }}</a>
+            {% if current_user and current_user["is_admin"] %}
+              <a href="/admin?lang={{ lang }}">{{ t["nav_admin"] }}</a>
+            {% endif %}
+            <button type="button" class="nav-button" data-open-quickfind>{{ t["nav_quickfind"] }}</button>
+          </nav>
+
+          <div class="utility-row">
+            <div class="lang-switch">
+              <a href="{{ lang_url_vi }}" class="{% if lang == 'vi' %}active{% endif %}">{{ t["lang_vi"] }}</a>
+              <a href="{{ lang_url_en }}" class="{% if lang == 'en' %}active{% endif %}">{{ t["lang_en"] }}</a>
+            </div>
+
+            <div class="account-pill">
+              {% if current_user %}
+                <span>{{ t["hello"] }}, <strong>{{ current_user["username"] }}</strong></span>
+                {% if current_user["is_admin"] %}
+                  <em>{{ t["admin_badge"] }}</em>
+                {% endif %}
+                <form method="post" action="/logout">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button type="submit" class="ghost-button">{{ t["logout"] }}</button>
+                </form>
+              {% else %}
+                <span>{{ t["guest"] }}</span>
+                <button type="button" class="ghost-button" data-open-auth>{{ t["open_login"] }}</button>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {% block content %}{% endblock %}
+    </div>
+  </body>
+</html>
