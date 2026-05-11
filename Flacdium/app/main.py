@@ -16,10 +16,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse
 from urllib.request import urlopen
-from zipfile import ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from mutagen.flac import FLAC
@@ -32,9 +33,10 @@ COVERS_DIR = BASE_DIR / "covers"
 TMP_DIR = BASE_DIR / "tmp"
 REVIEW_DIR = TMP_DIR / "review"
 SPECTRUM_DIR = TMP_DIR / "spectrum"
+BATCH_DIR = TMP_DIR / "upload_batches"
 DB_PATH = DATA_DIR / "flacdium.sqlite3"
 
-for folder in (DATA_DIR, LIBRARY_DIR, OBJECTS_DIR, COVERS_DIR, TMP_DIR, REVIEW_DIR, SPECTRUM_DIR):
+for folder in (DATA_DIR, LIBRARY_DIR, OBJECTS_DIR, COVERS_DIR, TMP_DIR, REVIEW_DIR, SPECTRUM_DIR, BATCH_DIR):
     folder.mkdir(parents=True, exist_ok=True)
 
 
@@ -123,6 +125,7 @@ TRACKS_PER_PAGE = 24
 SIDEBAR_PAGE_SIZE = 10
 QUICK_LINKS_LIMIT = 8
 LOGIN_LOGS_PER_PAGE = 40
+MAX_BUNDLE_TRACKS = 100
 SORTS = {
     "newest": "uploaded_at DESC",
     "oldest": "uploaded_at ASC",
@@ -201,6 +204,9 @@ TEXT: dict[str, dict[str, str]] = {
         "genre_missing": "chưa gắn thể loại",
         "disc": "đĩa",
         "download_label": "flac",
+        "download_many_flac": "flac đã chọn",
+        "download_zip": "zip đã chọn",
+        "select": "chọn",
         "empty_index": "chưa có bài nào",
         "fresh": "vừa lên",
         "login_required_tip": "đăng nhập bắt buộc để tải file",
@@ -397,6 +403,9 @@ TEXT: dict[str, dict[str, str]] = {
         "genre_missing": "untagged genre",
         "disc": "disc",
         "download_label": "flac",
+        "download_many_flac": "selected flac",
+        "download_zip": "selected zip",
+        "select": "select",
         "empty_index": "index empty",
         "fresh": "fresh",
         "login_required_tip": "login required for downloads",
@@ -544,7 +553,7 @@ templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 
 
 def init_storage() -> None:
-    for folder in (DATA_DIR, LIBRARY_DIR, OBJECTS_DIR, COVERS_DIR, TMP_DIR, REVIEW_DIR, SPECTRUM_DIR):
+    for folder in (DATA_DIR, LIBRARY_DIR, OBJECTS_DIR, COVERS_DIR, TMP_DIR, REVIEW_DIR, SPECTRUM_DIR, BATCH_DIR):
         folder.mkdir(parents=True, exist_ok=True)
 
 
@@ -1482,6 +1491,22 @@ def download_filename_for_track(track_row: sqlite3.Row) -> str:
     return f"{title} ({artist}).flac"
 
 
+def bundle_filename() -> str:
+    return f"flacdium-bundle-{now_utc().strftime('%Y%m%d%H%M%S')}.zip"
+
+
+def unique_bundle_member_name(name: str, used_names: set[str]) -> str:
+    candidate = name
+    stem = Path(name).stem
+    suffix = Path(name).suffix or ".flac"
+    counter = 2
+    while candidate in used_names:
+        candidate = f"{stem} [{counter}]{suffix}"
+        counter += 1
+    used_names.add(candidate)
+    return candidate
+
+
 def build_uploader_map(connection: sqlite3.Connection, track_ids: list[int]) -> dict[int, list[str]]:
     if not track_ids:
         return {}
@@ -1907,6 +1932,29 @@ async def save_upload_to_tmp(upload: UploadFile, suffix: str, max_bytes: int, er
         await upload.close()
 
 
+def normalize_batch_id(raw_value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]", "", raw_value or "")[:64]
+
+
+def batch_work_dir(batch_id: str) -> Path:
+    safe_batch_id = normalize_batch_id(batch_id)
+    if not safe_batch_id:
+        raise IngestError("nothing_uploaded")
+    return BATCH_DIR / safe_batch_id
+
+
+def batch_meta_path(batch_id: str, upload_token: str) -> Path:
+    return batch_work_dir(batch_id) / f"{upload_token}.json"
+
+
+def batch_part_path(batch_id: str, upload_token: str) -> Path:
+    return batch_work_dir(batch_id) / f"{upload_token}.part"
+
+
+def cleanup_batch_dir(batch_id: str) -> None:
+    shutil.rmtree(batch_work_dir(batch_id), ignore_errors=True)
+
+
 def describe_error(code: str, lang: str) -> str:
     t = text_for(lang)
     if ":" not in code:
@@ -1923,6 +1971,92 @@ def should_queue_review_for_error(code: str) -> bool:
         "low_quality_sample_rate",
         "low_quality_bit_depth",
     }
+
+
+def ingest_staged_flac(
+    staged_path: Path,
+    original_filename: str,
+    uploader: str,
+    accepted: list[str],
+    rejected: list[str],
+    lang: str,
+) -> None:
+    try:
+        meta = ingest_flac(staged_path, original_filename, uploader)
+        accepted.append(acceptance_label(meta, lang))
+    except IngestError as exc:
+        if should_queue_review_for_error(str(exc)):
+            queue_review_item(
+                source_path=staged_path,
+                original_filename=original_filename,
+                uploader=uploader,
+                reason=str(exc),
+                suggested_action="import_anyway",
+            )
+            accepted.append(
+                acceptance_label(
+                    {
+                        **extract_relaxed_candidate_info(staged_path),
+                        "status": "queued_quality_review",
+                    },
+                    lang,
+                )
+            )
+        else:
+            rejected.append(f"{original_filename}: {describe_error(str(exc), lang)}")
+
+
+def process_zip_path(
+    zip_path: Path,
+    zip_name: str,
+    uploader: str,
+    accepted: list[str],
+    rejected: list[str],
+    lang: str,
+) -> None:
+    try:
+        with ZipFile(zip_path) as archive:
+            members = [member for member in archive.infolist() if not member.is_dir()]
+            flac_members = [member for member in members if member.filename.lower().endswith(".flac")]
+            if not flac_members:
+                rejected.append(f"{zip_name}: {text_for(lang)['zip_empty']}")
+            if len(flac_members) > MAX_ZIP_MEMBERS:
+                rejected.append(f"{zip_name}: {text_for(lang)['zip_too_many_members']}")
+                return
+            total_unpacked_bytes = 0
+            for member in flac_members:
+                if member.file_size > MAX_ZIP_MEMBER_BYTES:
+                    rejected.append(f"{member.filename}: {text_for(lang)['zip_member_too_large']}")
+                    continue
+                if total_unpacked_bytes + member.file_size > MAX_ZIP_TOTAL_UNPACKED_BYTES:
+                    rejected.append(f"{zip_name}: {text_for(lang)['zip_unpacked_too_large']}")
+                    break
+                tmp_flac = Path(
+                    tempfile.NamedTemporaryFile(delete=False, dir=TMP_DIR, suffix=".flac").name
+                )
+                try:
+                    with archive.open(member) as source, tmp_flac.open("wb") as target:
+                        written_bytes = copy_stream_limited(
+                            source,
+                            target,
+                            MAX_ZIP_MEMBER_BYTES,
+                            "zip_member_too_large",
+                        )
+                    total_unpacked_bytes += written_bytes
+                    ingest_staged_flac(
+                        tmp_flac,
+                        Path(member.filename).name,
+                        uploader,
+                        accepted,
+                        rejected,
+                        lang,
+                    )
+                finally:
+                    tmp_flac.unlink(missing_ok=True)
+    except IngestError as exc:
+        rejected.append(f"{zip_name}: {describe_error(str(exc), lang)}")
+    except Exception as exc:  # noqa: BLE001
+        rejected.append(f"{zip_name}: {exc}")
 
 
 async def process_direct_uploads(
@@ -1976,28 +2110,7 @@ async def process_direct_uploads(
 
     for original_filename, tmp_path in staged_uploads:
         try:
-            meta = ingest_flac(tmp_path, original_filename, uploader)
-            accepted.append(acceptance_label(meta, lang))
-        except IngestError as exc:
-            if should_queue_review_for_error(str(exc)):
-                queue_review_item(
-                    source_path=tmp_path,
-                    original_filename=original_filename,
-                    uploader=uploader,
-                    reason=str(exc),
-                    suggested_action="import_anyway",
-                )
-                accepted.append(
-                    acceptance_label(
-                        {
-                            **extract_relaxed_candidate_info(tmp_path),
-                            "status": "queued_quality_review",
-                        },
-                        lang,
-                    )
-                )
-            else:
-                rejected.append(f"{original_filename}: {describe_error(str(exc), lang)}")
+            ingest_staged_flac(tmp_path, original_filename, uploader, accepted, rejected, lang)
         finally:
             tmp_path.unlink(missing_ok=True)
 
@@ -2024,58 +2137,7 @@ async def process_zip_upload(
             MAX_ZIP_FILE_BYTES,
             "zip_file_too_large",
         )
-        with ZipFile(zip_path) as archive:
-            members = [member for member in archive.infolist() if not member.is_dir()]
-            flac_members = [member for member in members if member.filename.lower().endswith(".flac")]
-            if not flac_members:
-                rejected.append(f"{zip_upload.filename}: {text_for(lang)['zip_empty']}")
-            if len(flac_members) > MAX_ZIP_MEMBERS:
-                rejected.append(f"{zip_upload.filename}: {text_for(lang)['zip_too_many_members']}")
-                return
-            total_unpacked_bytes = 0
-            for member in flac_members:
-                if member.file_size > MAX_ZIP_MEMBER_BYTES:
-                    rejected.append(f"{member.filename}: {text_for(lang)['zip_member_too_large']}")
-                    continue
-                if total_unpacked_bytes + member.file_size > MAX_ZIP_TOTAL_UNPACKED_BYTES:
-                    rejected.append(f"{zip_upload.filename}: {text_for(lang)['zip_unpacked_too_large']}")
-                    break
-                tmp_flac = Path(
-                    tempfile.NamedTemporaryFile(delete=False, dir=TMP_DIR, suffix=".flac").name
-                )
-                try:
-                    with archive.open(member) as source, tmp_flac.open("wb") as target:
-                        written_bytes = copy_stream_limited(
-                            source,
-                            target,
-                            MAX_ZIP_MEMBER_BYTES,
-                            "zip_member_too_large",
-                        )
-                    total_unpacked_bytes += written_bytes
-                    meta = ingest_flac(tmp_flac, Path(member.filename).name, uploader)
-                    accepted.append(acceptance_label(meta, lang))
-                except IngestError as exc:
-                    if should_queue_review_for_error(str(exc)):
-                        queue_review_item(
-                            source_path=tmp_flac,
-                            original_filename=Path(member.filename).name,
-                            uploader=uploader,
-                            reason=str(exc),
-                            suggested_action="import_anyway",
-                        )
-                        accepted.append(
-                            acceptance_label(
-                                {
-                                    **extract_relaxed_candidate_info(tmp_flac),
-                                    "status": "queued_quality_review",
-                                },
-                                lang,
-                            )
-                        )
-                    else:
-                        rejected.append(f"{member.filename}: {describe_error(str(exc), lang)}")
-                finally:
-                    tmp_flac.unlink(missing_ok=True)
+        process_zip_path(zip_path, zip_upload.filename, uploader, accepted, rejected, lang)
     except IngestError as exc:
         rejected.append(f"{zip_upload.filename}: {describe_error(str(exc), lang)}")
     except Exception as exc:  # noqa: BLE001
@@ -2083,6 +2145,92 @@ async def process_zip_upload(
     finally:
         if zip_path is not None:
             zip_path.unlink(missing_ok=True)
+
+
+async def append_chunk_to_batch(
+    chunk: UploadFile,
+    *,
+    batch_id: str,
+    upload_token: str,
+    upload_name: str,
+    upload_kind: str,
+    chunk_offset: int,
+    upload_size: int,
+) -> dict[str, Any]:
+    work_dir = batch_work_dir(batch_id)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    token = re.sub(r"[^a-zA-Z0-9_-]", "", upload_token or "")[:64]
+    if not token:
+        raise IngestError("nothing_uploaded")
+    if upload_kind not in {"file", "zip"}:
+        raise IngestError("nothing_uploaded")
+    max_size = MAX_ZIP_FILE_BYTES if upload_kind == "zip" else MAX_UPLOAD_FILE_BYTES
+    error_code = "zip_file_too_large" if upload_kind == "zip" else "upload_file_too_large"
+    if upload_size <= 0 or upload_size > max_size:
+        raise IngestError(error_code)
+    if chunk_offset < 0 or chunk_offset > upload_size:
+        raise IngestError(error_code)
+
+    part_path = batch_part_path(batch_id, token)
+    meta_path = batch_meta_path(batch_id, token)
+    meta = {
+        "token": token,
+        "name": upload_name,
+        "kind": upload_kind,
+        "size": upload_size,
+    }
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+    total_written = 0
+    try:
+        with part_path.open("r+b") if part_path.exists() else part_path.open("w+b") as handle:
+            handle.seek(chunk_offset)
+            while True:
+                raw = await chunk.read(1024 * 1024)
+                if not raw:
+                    break
+                total_written += len(raw)
+                if chunk_offset + total_written > upload_size:
+                    raise IngestError(error_code)
+                handle.write(raw)
+        if part_path.stat().st_size > upload_size:
+            raise IngestError(error_code)
+        return meta
+    finally:
+        await chunk.close()
+
+
+def process_completed_batch(
+    batch_id: str,
+    uploader: str,
+    accepted: list[str],
+    rejected: list[str],
+    lang: str,
+) -> None:
+    work_dir = batch_work_dir(batch_id)
+    if not work_dir.exists():
+        raise IngestError("nothing_uploaded")
+    meta_files = sorted(work_dir.glob("*.json"))
+    if not meta_files:
+        raise IngestError("nothing_uploaded")
+    if len(meta_files) > MAX_UPLOAD_FILES:
+        raise IngestError("too_many_upload_files")
+
+    total_bytes = 0
+    for meta_path in meta_files:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        part_path = batch_part_path(batch_id, str(meta["token"]))
+        expected_size = int(meta["size"])
+        if not part_path.exists() or part_path.stat().st_size != expected_size:
+            rejected.append(f"{meta['name']}: {text_for(lang)['upload_progress_error']}")
+            continue
+        total_bytes += expected_size
+        if total_bytes > MAX_UPLOAD_TOTAL_BYTES:
+            raise IngestError("upload_total_too_large")
+        if meta["kind"] == "zip":
+            process_zip_path(part_path, str(meta["name"]), uploader, accepted, rejected, lang)
+        else:
+            ingest_staged_flac(part_path, str(meta["name"]), uploader, accepted, rejected, lang)
 
 
 def human_duration(seconds: int) -> str:
@@ -2848,6 +2996,94 @@ async def upload(
     return render_home(request, notice=notice, accepted=accepted, rejected=rejected)
 
 
+@app.post("/upload/chunk")
+async def upload_chunk(
+    request: Request,
+    csrf_token: str = Form(...),
+    upload_batch_id: str = Form(...),
+    upload_token: str = Form(...),
+    upload_name: str = Form(...),
+    upload_kind: str = Form(...),
+    chunk_offset: int = Form(...),
+    upload_size: int = Form(...),
+    chunk: UploadFile = File(...),
+) -> JSONResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    user = current_user(request)
+    try:
+        verify_csrf(request, csrf_token)
+        enforce_body_size_limit(request, MAX_REQUEST_BODY_BYTES)
+    except HTTPException as exc:
+        return JSONResponse({"ok": False, "detail": str(exc.detail)}, status_code=exc.status_code)
+    if user is None:
+        return JSONResponse({"ok": False, "detail": t["upload_login_required"]}, status_code=403)
+    if not user["is_active"]:
+        return JSONResponse({"ok": False, "detail": t["user_disabled"]}, status_code=403)
+    batch_id = normalize_batch_id(upload_batch_id)
+    try:
+        enforce_upload_rate_limit(request, user["username"], batch_id=batch_id)
+        meta = await append_chunk_to_batch(
+            chunk,
+            batch_id=batch_id,
+            upload_token=upload_token,
+            upload_name=upload_name,
+            upload_kind=upload_kind,
+            chunk_offset=chunk_offset,
+            upload_size=upload_size,
+        )
+    except HTTPException as exc:
+        return JSONResponse({"ok": False, "detail": str(exc.detail)}, status_code=exc.status_code)
+    except IngestError as exc:
+        return JSONResponse({"ok": False, "detail": describe_error(str(exc), lang)}, status_code=400)
+    return JSONResponse({"ok": True, "token": meta["token"]})
+
+
+@app.post("/upload/complete", response_class=HTMLResponse)
+async def upload_complete(
+    request: Request,
+    csrf_token: str = Form(...),
+    rights_confirmed: bool = Form(False),
+    upload_batch_id: str = Form(...),
+) -> HTMLResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    user = current_user(request)
+    try:
+        verify_csrf(request, csrf_token)
+    except HTTPException as exc:
+        return render_home(request, notice=str(exc.detail), status_code=exc.status_code)
+    if user is None:
+        return render_home(
+            request,
+            notice=t["upload_login_required"],
+            status_code=403,
+            auth_open=True,
+            auth_mode="login",
+        )
+    if not user["is_active"]:
+        return render_home(request, notice=t["user_disabled"], status_code=403)
+    if not rights_confirmed:
+        return render_home(request, notice=t["rights_needed"], status_code=400)
+
+    accepted: list[str] = []
+    rejected: list[str] = []
+    batch_id = normalize_batch_id(upload_batch_id)
+    try:
+        process_completed_batch(batch_id, user["username"], accepted, rejected, lang)
+    except IngestError as exc:
+        cleanup_batch_dir(batch_id)
+        return render_home(request, notice=describe_error(str(exc), lang), status_code=400)
+    finally:
+        cleanup_batch_dir(batch_id)
+
+    if not accepted and not rejected:
+        return render_home(request, notice=t["nothing_uploaded"], status_code=400)
+
+    notice = t["accepted_summary"].format(accepted=len(accepted), rejected=len(rejected))
+    return render_home(request, notice=notice, accepted=accepted, rejected=rejected)
+
+
 @app.get("/download/{track_id}")
 async def download(request: Request, track_id: int) -> FileResponse:
     lang = get_lang(request)
@@ -2869,6 +3105,65 @@ async def download(request: Request, track_id: int) -> FileResponse:
         file_path,
         media_type="audio/flac",
         filename=download_filename_for_track(row),
+    )
+
+
+@app.get("/download-bundle")
+async def download_bundle(request: Request, ids: str = "") -> FileResponse:
+    lang = get_lang(request)
+    user = current_user(request)
+    if user is None:
+        raise HTTPException(status_code=403, detail=text_for(lang)["login_needed_notice"])
+    if not user["is_active"]:
+        raise HTTPException(status_code=403, detail=text_for(lang)["user_disabled"])
+
+    raw_ids = [part.strip() for part in ids.split(",") if part.strip()]
+    track_ids: list[int] = []
+    for raw_id in raw_ids:
+        if raw_id.isdigit():
+            track_ids.append(int(raw_id))
+    track_ids = list(dict.fromkeys(track_ids))
+    if not track_ids:
+        raise HTTPException(status_code=400, detail=text_for(lang)["track_not_found"])
+    if len(track_ids) > MAX_BUNDLE_TRACKS:
+        raise HTTPException(status_code=400, detail=f"too many tracks, max {MAX_BUNDLE_TRACKS}")
+
+    placeholders = ",".join("?" for _ in track_ids)
+    with get_db() as connection:
+        rows = connection.execute(
+            f"SELECT * FROM tracks WHERE id IN ({placeholders})",
+            track_ids,
+        ).fetchall()
+    if not rows:
+        raise HTTPException(status_code=404, detail=text_for(lang)["track_not_found"])
+
+    row_by_id = {int(row["id"]): row for row in rows}
+    ordered_rows = [row_by_id[track_id] for track_id in track_ids if track_id in row_by_id]
+    if not ordered_rows:
+        raise HTTPException(status_code=404, detail=text_for(lang)["track_not_found"])
+
+    bundle_path = Path(tempfile.NamedTemporaryFile(delete=False, dir=TMP_DIR, suffix=".zip").name)
+    used_names: set[str] = set()
+    try:
+        with ZipFile(bundle_path, "w", compression=ZIP_DEFLATED) as archive:
+            for row in ordered_rows:
+                blob_relative = row["blob_path"] or row["stored_path"]
+                file_path = LIBRARY_DIR / blob_relative
+                if not file_path.exists():
+                    continue
+                archive.write(
+                    file_path,
+                    arcname=unique_bundle_member_name(download_filename_for_track(row), used_names),
+                )
+    except Exception:
+        bundle_path.unlink(missing_ok=True)
+        raise
+
+    return FileResponse(
+        bundle_path,
+        media_type="application/zip",
+        filename=bundle_filename(),
+        background=BackgroundTask(lambda: bundle_path.unlink(missing_ok=True)),
     )
 
 

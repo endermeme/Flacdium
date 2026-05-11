@@ -327,10 +327,15 @@
     <section class="table-wrap">
       <div class="table-toolbar">
         <button type="button" class="mini-button" data-open-quickfind>{{ t["nav_quickfind"] }}</button>
+        <div class="selection-tools">
+          <button type="button" class="mini-button" data-download-selected>{{ t["download_many_flac"] }}</button>
+          <button type="button" class="mini-button" data-download-zip>{{ t["download_zip"] }}</button>
+        </div>
       </div>
       <table class="library-table">
         <thead>
           <tr>
+            <th class="select-col">{{ t["select"] }}</th>
             <th>{{ t["cover"] }}</th>
             <th>{{ t["track"] }}</th>
             <th>{{ t["artist"] }}</th>
@@ -347,6 +352,9 @@
         <tbody>
           {% for track in tracks %}
             <tr>
+              <td class="select-col">
+                <input type="checkbox" value="{{ track['id'] }}" data-track-select>
+              </td>
               <td class="cover-cell">
                 <img src="{{ track['cover_url'] }}" alt="{{ track['album'] }}">
               </td>
@@ -384,7 +392,7 @@
             </tr>
           {% else %}
             <tr>
-              <td colspan="11" class="empty-row">{{ t["empty_index"] }}</td>
+              <td colspan="12" class="empty-row">{{ t["empty_index"] }}</td>
             </tr>
           {% endfor %}
         </tbody>

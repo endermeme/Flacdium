@@ -19,6 +19,9 @@ const uploadZipInput = uploadForm ? uploadForm.querySelector('input[name="zip_fi
 const rightsCheckbox = uploadForm ? uploadForm.querySelector('input[name="rights_confirmed"]') : null;
 const csrfField = uploadForm ? uploadForm.querySelector('input[name="csrf_token"]') : null;
 const langField = uploadForm ? uploadForm.querySelector('input[name="lang"]') : null;
+const downloadSelectedButton = document.querySelector("[data-download-selected]");
+const downloadZipButton = document.querySelector("[data-download-zip]");
+const trackSelectBoxes = Array.from(document.querySelectorAll("[data-track-select]"));
 const nextFields = Array.from(document.querySelectorAll("[data-next-field]"));
 const authTabs = Array.from(document.querySelectorAll("[data-auth-tab]"));
 const authForms = Array.from(document.querySelectorAll("[data-auth-form]"));
@@ -149,9 +152,13 @@ function generateBatchId() {
   return `batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function createUploadRequest(formData, batchId, onProgress, onDone, onFail) {
+function selectedTrackIds() {
+  return trackSelectBoxes.filter((box) => box.checked).map((box) => box.value);
+}
+
+function createUploadRequest(url, formData, batchId, onProgress, onDone, onFail) {
   const xhr = new XMLHttpRequest();
-  xhr.open(uploadForm.method || "POST", uploadForm.action, true);
+  xhr.open("POST", url, true);
   xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
   if (batchId) {
     xhr.setRequestHeader("X-Flacdium-Upload-Batch", batchId);
@@ -159,6 +166,22 @@ function createUploadRequest(formData, batchId, onProgress, onDone, onFail) {
   xhr.responseType = "text";
   xhr.timeout = 0;
 
+  xhr.upload.addEventListener("progress", onProgress);
+  xhr.addEventListener("load", () => onDone(xhr));
+  xhr.addEventListener("error", onFail);
+  xhr.addEventListener("abort", onFail);
+  xhr.send(formData);
+}
+
+function createChunkRequest(url, formData, batchId, onProgress, onDone, onFail) {
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", url, true);
+  xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+  if (batchId) {
+    xhr.setRequestHeader("X-Flacdium-Upload-Batch", batchId);
+  }
+  xhr.responseType = "text";
+  xhr.timeout = 0;
   xhr.upload.addEventListener("progress", onProgress);
   xhr.addEventListener("load", () => onDone(xhr));
   xhr.addEventListener("error", onFail);
@@ -237,10 +260,9 @@ if (uploadForm && window.XMLHttpRequest && window.FormData) {
       return;
     }
 
-    const formData = new FormData(uploadForm);
-    const flacFiles = formData.getAll("files").filter((value) => value instanceof File && value.name);
-    const zipFile = formData.get("zip_file");
-    if (flacFiles.length === 0 && (!(zipFile instanceof File) || !zipFile.name)) {
+    const directFiles = uploadFilesInput && uploadFilesInput.files ? Array.from(uploadFilesInput.files).filter((file) => file && file.name) : [];
+    const zipFiles = uploadZipInput && uploadZipInput.files ? Array.from(uploadZipInput.files).filter((file) => file && file.name) : [];
+    if (directFiles.length === 0 && zipFiles.length === 0) {
       return;
     }
 
@@ -252,48 +274,9 @@ if (uploadForm && window.XMLHttpRequest && window.FormData) {
     const processingText = uploadForm.dataset.uploadProcessing || "Upload finished, ingesting...";
     const errorText = uploadForm.dataset.uploadError || "Upload failed.";
     setUploadProgress(0, uploadingText);
-    const directFiles = uploadFilesInput && uploadFilesInput.files ? Array.from(uploadFilesInput.files).filter((file) => file && file.name) : [];
-    const zipFiles = uploadZipInput && uploadZipInput.files ? Array.from(uploadZipInput.files).filter((file) => file && file.name) : [];
-    const useSequentialMode = directFiles.length + zipFiles.length > 1;
     const batchId = generateBatchId();
     if (uploadBatchField) {
       uploadBatchField.value = batchId;
-    }
-
-    if (!useSequentialMode) {
-      if (uploadBatchField) {
-        formData.set("upload_batch_id", batchId);
-      }
-      createUploadRequest(
-        formData,
-        batchId,
-        (progressEvent) => {
-          if (!progressEvent.lengthComputable) {
-            setUploadProgress(0, uploadingText);
-            return;
-          }
-          const percent = Math.round((progressEvent.loaded / progressEvent.total) * 100);
-          setUploadProgress(percent, uploadingText);
-        },
-        (xhr) => {
-          uploadInFlight = false;
-          if (xhr.status >= 200 && xhr.status < 400 && typeof xhr.responseText === "string" && xhr.responseText) {
-            setUploadProgress(100, processingText);
-            document.open();
-            document.write(xhr.responseText);
-            document.close();
-            return;
-          }
-          if (uploadSubmit) uploadSubmit.disabled = false;
-          setUploadProgress(100, errorText);
-        },
-        () => {
-          uploadInFlight = false;
-          if (uploadSubmit) uploadSubmit.disabled = false;
-          setUploadProgress(100, errorText);
-        },
-      );
-      return;
     }
 
     const tasks = [];
@@ -306,61 +289,135 @@ if (uploadForm && window.XMLHttpRequest && window.FormData) {
     const totalBytes = tasks.reduce((sum, task) => sum + task.size, 0) || 1;
     let finishedBytes = 0;
     let currentIndex = 0;
+    const chunkSize = 8 * 1024 * 1024;
 
     const runNextTask = () => {
       if (currentIndex >= tasks.length) {
-        setUploadProgress(100, processingText);
-        window.location.reload();
+        const completeForm = new FormData();
+        completeForm.set("csrf_token", csrfField ? csrfField.value : "");
+        completeForm.set("rights_confirmed", rightsCheckbox && rightsCheckbox.checked ? "true" : "false");
+        completeForm.set("upload_batch_id", batchId);
+        createUploadRequest(
+          "/upload/complete",
+          completeForm,
+          batchId,
+          () => {},
+          (xhr) => {
+            uploadInFlight = false;
+            if (xhr.status >= 200 && xhr.status < 400 && typeof xhr.responseText === "string" && xhr.responseText) {
+              setUploadProgress(100, processingText);
+              document.open();
+              document.write(xhr.responseText);
+              document.close();
+              return;
+            }
+            if (uploadSubmit) uploadSubmit.disabled = false;
+            setUploadProgress(100, errorText);
+          },
+          () => {
+            uploadInFlight = false;
+            if (uploadSubmit) uploadSubmit.disabled = false;
+            setUploadProgress(100, errorText);
+          },
+        );
         return;
       }
 
       const task = tasks[currentIndex];
-      const taskForm = new FormData();
-      taskForm.set("csrf_token", csrfField ? csrfField.value : "");
-      taskForm.set("lang", langField ? langField.value : "");
-      taskForm.set("upload_batch_id", batchId);
-      if (rightsCheckbox && rightsCheckbox.checked) {
-        taskForm.set("rights_confirmed", "true");
-      }
-      if (task.kind === "file") {
-        taskForm.append("files", task.file, task.file.name);
-      } else {
-        taskForm.append("zip_file", task.file, task.file.name);
-      }
+      const token = `item-${currentIndex}`;
+      let offset = 0;
 
-      createUploadRequest(
-        taskForm,
-        batchId,
-        (progressEvent) => {
-          if (!progressEvent.lengthComputable) {
-            setUploadProgress(Math.round((finishedBytes / totalBytes) * 100), uploadingText);
-            return;
-          }
-          const percent = Math.round(((finishedBytes + progressEvent.loaded) / totalBytes) * 100);
-          setUploadProgress(percent, uploadingText);
-        },
-        (xhr) => {
-          if (xhr.status < 200 || xhr.status >= 400) {
-            uploadInFlight = false;
-            if (uploadSubmit) uploadSubmit.disabled = false;
-            setUploadProgress(100, errorText);
-            return;
-          }
+      const runNextChunk = () => {
+        if (offset >= task.size) {
           finishedBytes += task.size;
           currentIndex += 1;
           setUploadProgress(Math.round((finishedBytes / totalBytes) * 100), processingText);
           runNextTask();
-        },
-        () => {
-          uploadInFlight = false;
-          if (uploadSubmit) uploadSubmit.disabled = false;
-          setUploadProgress(100, errorText);
-        },
-      );
+          return;
+        }
+
+        const end = Math.min(offset + chunkSize, task.size);
+        const chunkBlob = task.file.slice(offset, end);
+        const taskForm = new FormData();
+        taskForm.set("csrf_token", csrfField ? csrfField.value : "");
+        taskForm.set("upload_batch_id", batchId);
+        taskForm.set("upload_token", token);
+        taskForm.set("upload_name", task.file.name);
+        taskForm.set("upload_kind", task.kind);
+        taskForm.set("chunk_offset", String(offset));
+        taskForm.set("upload_size", String(task.size));
+        taskForm.append("chunk", chunkBlob, task.file.name);
+
+        createChunkRequest(
+          "/upload/chunk",
+          taskForm,
+          batchId,
+          (progressEvent) => {
+            const loaded = progressEvent.lengthComputable ? progressEvent.loaded : chunkBlob.size;
+            const percent = Math.round(((finishedBytes + offset + loaded) / totalBytes) * 100);
+            setUploadProgress(percent, uploadingText);
+          },
+          (xhr) => {
+            if (xhr.status < 200 || xhr.status >= 400) {
+              uploadInFlight = false;
+              if (uploadSubmit) uploadSubmit.disabled = false;
+              let detail = errorText;
+              try {
+                const payload = JSON.parse(xhr.responseText || "{}");
+                if (payload && payload.detail) detail = payload.detail;
+              } catch (error) {}
+              setUploadProgress(100, detail);
+              return;
+            }
+            offset = end;
+            runNextChunk();
+          },
+          () => {
+            uploadInFlight = false;
+            if (uploadSubmit) uploadSubmit.disabled = false;
+            setUploadProgress(100, errorText);
+          },
+        );
+      };
+
+      runNextChunk();
     };
 
     runNextTask();
   });
 } else {
   hideUploadProgress();
+}
+
+if (downloadSelectedButton) {
+  downloadSelectedButton.addEventListener("click", () => {
+    const ids = selectedTrackIds();
+    if (ids.length === 0) return;
+    if (body.dataset.userAuthenticated !== "1") {
+      openAuth("login");
+      return;
+    }
+    ids.forEach((trackId, index) => {
+      window.setTimeout(() => {
+        const link = document.createElement("a");
+        link.href = `/download/${trackId}`;
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }, index * 650);
+    });
+  });
+}
+
+if (downloadZipButton) {
+  downloadZipButton.addEventListener("click", () => {
+    const ids = selectedTrackIds();
+    if (ids.length === 0) return;
+    if (body.dataset.userAuthenticated !== "1") {
+      openAuth("login");
+      return;
+    }
+    window.location.href = `/download-bundle?ids=${encodeURIComponent(ids.join(","))}`;
+  });
 }

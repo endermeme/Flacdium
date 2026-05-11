@@ -648,7 +648,13 @@ select:disabled {
   padding: 4px 5px;
   border-bottom: 1px solid #c8d0dc;
   background: #f4f7fb;
-  justify-content: flex-end;
+  justify-content: space-between;
+}
+
+.selection-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .pager-row {
@@ -901,6 +907,11 @@ select:disabled {
 
 .cover-cell {
   width: 34px;
+}
+
+.select-col {
+  width: 28px;
+  text-align: center;
 }
 
 .cover-cell img {
