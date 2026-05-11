@@ -254,6 +254,26 @@ if (spectrumOverlay) {
 }
 
 if (uploadForm && window.XMLHttpRequest && window.FormData) {
+  if (uploadFilesInput && uploadZipInput) {
+    uploadFilesInput.addEventListener("change", () => {
+      if (uploadFilesInput.files.length > 0) {
+        uploadZipInput.value = "";
+        uploadZipInput.disabled = true;
+      } else {
+        uploadZipInput.disabled = false;
+      }
+    });
+
+    uploadZipInput.addEventListener("change", () => {
+      if (uploadZipInput.files.length > 0) {
+        uploadFilesInput.value = "";
+        uploadFilesInput.disabled = true;
+      } else {
+        uploadFilesInput.disabled = false;
+      }
+    });
+  }
+
   uploadForm.addEventListener("submit", (event) => {
     if (uploadInFlight) {
       event.preventDefault();

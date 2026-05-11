@@ -612,6 +612,14 @@ button {
   margin-top: 0;
 }
 
+.input-hint {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 2px;
+  font-style: italic;
+}
+
 button {
   margin-top: 0;
   padding: 2px 6px;

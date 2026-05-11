@@ -180,10 +180,12 @@
         <label>
           <span>{{ t["bulk_flac"] }}</span>
           <input type="file" name="files" accept=".flac" multiple {% if not current_user %}disabled{% endif %}>
+          <small class="input-hint">Không thể chọn ZIP cùng lúc</small>
         </label>
         <label>
           <span>{{ t["zip_drop"] }}</span>
           <input type="file" name="zip_file" accept=".zip" {% if not current_user %}disabled{% endif %}>
+          <small class="input-hint">Không thể chọn FLAC cùng lúc</small>
         </label>
         <label class="checkbox-line">
           <input type="checkbox" name="rights_confirmed" value="true" required {% if not current_user %}disabled{% endif %}>
@@ -272,7 +274,7 @@
           {% endif %}
           <span>{{ t["page_label"] }} {{ sidebar["artists"]["pagination"]["page"] }}/{{ sidebar["artists"]["pagination"]["total_pages"] }}</span>
           {% if sidebar["artists"]["pagination"]["next_url"] %}
-            <a href="{{ sidebar['artists']['pagination']['next_url'] }}">{{ t["page_next"] }}</a>
+            <a href="{{ sidebar['artists']['pagination']['next_url'] }}" rel="nofollow">{{ t["page_next"] }}</a>
           {% else %}
             <span class="pager-muted">{{ t["page_next"] }}</span>
           {% endif %}
@@ -297,7 +299,7 @@
           {% endif %}
           <span>{{ t["page_label"] }} {{ sidebar["albums"]["pagination"]["page"] }}/{{ sidebar["albums"]["pagination"]["total_pages"] }}</span>
           {% if sidebar["albums"]["pagination"]["next_url"] %}
-            <a href="{{ sidebar['albums']['pagination']['next_url'] }}">{{ t["page_next"] }}</a>
+            <a href="{{ sidebar['albums']['pagination']['next_url'] }}" rel="nofollow">{{ t["page_next"] }}</a>
           {% else %}
             <span class="pager-muted">{{ t["page_next"] }}</span>
           {% endif %}
@@ -316,7 +318,7 @@
           {% endif %}
           <span>{{ t["page_label"] }} {{ sidebar["uploaders"]["pagination"]["page"] }}/{{ sidebar["uploaders"]["pagination"]["total_pages"] }}</span>
           {% if sidebar["uploaders"]["pagination"]["next_url"] %}
-            <a href="{{ sidebar['uploaders']['pagination']['next_url'] }}">{{ t["page_next"] }}</a>
+            <a href="{{ sidebar['uploaders']['pagination']['next_url'] }}" rel="nofollow">{{ t["page_next"] }}</a>
           {% else %}
             <span class="pager-muted">{{ t["page_next"] }}</span>
           {% endif %}

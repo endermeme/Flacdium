@@ -119,6 +119,9 @@ SIGNUP_RATE_LIMIT = env_int("FLACDIUM_SIGNUP_RATE_LIMIT", 6)
 SIGNUP_RATE_WINDOW_SECONDS = env_int("FLACDIUM_SIGNUP_RATE_WINDOW_SECONDS", 3600)
 UPLOAD_RATE_LIMIT = env_int("FLACDIUM_UPLOAD_RATE_LIMIT", 10)
 UPLOAD_RATE_WINDOW_SECONDS = env_int("FLACDIUM_UPLOAD_RATE_WINDOW_SECONDS", 3600)
+DOWNLOAD_RATE_LIMIT = env_int("FLACDIUM_DOWNLOAD_RATE_LIMIT", 50)
+DOWNLOAD_RATE_WINDOW_SECONDS = env_int("FLACDIUM_DOWNLOAD_RATE_WINDOW_SECONDS", 3600)
+MAX_CONCURRENT_DOWNLOADS = env_int("FLACDIUM_MAX_CONCURRENT_DOWNLOADS", 3)
 LANGUAGES = ("vi", "en")
 REQUIRED_TAGS = ("artist", "album", "title", "tracknumber", "date")
 TRACKS_PER_PAGE = 24
@@ -305,6 +308,8 @@ TEXT: dict[str, dict[str, str]] = {
         "rate_limit_login": "thử đăng nhập quá nhiều lần, chờ một lúc rồi thử lại",
         "rate_limit_signup": "tạo tài khoản quá nhanh, chờ một lúc rồi thử lại",
         "rate_limit_upload": "upload quá nhiều lần trong thời gian ngắn, chờ một lúc rồi thử lại",
+        "rate_limit_download": "tải quá nhiều file, chờ một lúc rồi thử lại",
+        "zip_corrupted": "file zip bị hỏng",
         "track_not_found": "không thấy bài",
         "file_missing": "file trên ổ đĩa không còn",
         "queued_review": "file đã vào hàng chờ duyệt",
@@ -504,6 +509,8 @@ TEXT: dict[str, dict[str, str]] = {
         "rate_limit_login": "too many login attempts, wait a bit and try again",
         "rate_limit_signup": "too many signup attempts, wait a bit and try again",
         "rate_limit_upload": "too many uploads in a short time, wait a bit and try again",
+        "rate_limit_download": "too many downloads, wait a bit and try again",
+        "zip_corrupted": "corrupted zip file",
         "track_not_found": "track not found",
         "file_missing": "file missing on disk",
         "queued_review": "file queued for review",
@@ -863,7 +870,7 @@ def analyze_spectral_profile(source_path: Path, sample_rate: int, duration_secon
                 "rawvideo",
                 "-",
             ],
-            timeout=45,
+            timeout=30,
         )
     except Exception:  # noqa: BLE001
         return {}
@@ -896,7 +903,7 @@ def analyze_spectral_profile(source_path: Path, sample_rate: int, duration_secon
             ],
             stderr=subprocess.STDOUT,
             text=True,
-            timeout=45,
+            timeout=30,
         )
         for line in rolloff_output.splitlines():
             if "lavfi.aspectralstats.1.rolloff=" in line:
@@ -1262,6 +1269,18 @@ def enforce_upload_rate_limit(request: Request, username_value: str, batch_id: s
         record_request_event("upload_batch", batch_scope)
 
 
+def enforce_download_rate_limit(request: Request, username_value: str) -> None:
+    ip_address, _ = get_client_ip(request)
+    check_rate_limit(request, "download", f"ip:{ip_address}", DOWNLOAD_RATE_LIMIT, DOWNLOAD_RATE_WINDOW_SECONDS)
+    check_rate_limit(
+        request,
+        "download",
+        f"user:{username_value.lower()}",
+        DOWNLOAD_RATE_LIMIT,
+        DOWNLOAD_RATE_WINDOW_SECONDS,
+    )
+
+
 def lookup_cell_location(cell_data: dict[str, str], ip_changed: bool) -> tuple[str, str, str]:
     if not ip_changed:
         return "not_needed", "", ""
@@ -1464,24 +1483,36 @@ def ensure_spectrum_image(track_row: sqlite3.Row) -> Path:
     target_path.parent.mkdir(parents=True, exist_ok=True)
     if target_path.exists():
         return target_path
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            str(source_path),
-            "-lavfi",
-            "showspectrumpic=s=1600x900:legend=enabled:color=intensity:scale=log:fscale=lin:gain=2:drange=135",
-            "-frames:v",
-            "1",
-            str(target_path),
-            "-y",
-        ],
-        check=True,
-        timeout=90,
-    )
+
+    duration_seconds = int(track_row["duration_seconds"] or 0)
+    spectrum_size = "1200x600" if duration_seconds > 300 else "800x400"
+
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(source_path),
+                "-lavfi",
+                f"showspectrumpic=s={spectrum_size}:legend=disabled:color=intensity:scale=lin:gain=2",
+                "-frames:v",
+                "1",
+                str(target_path),
+                "-y",
+            ],
+            check=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        if not target_path.exists():
+            raise HTTPException(status_code=500, detail="spectrum generation timeout")
+    except subprocess.CalledProcessError:
+        if not target_path.exists():
+            raise HTTPException(status_code=500, detail="spectrum generation failed")
+
     return target_path
 
 
@@ -2015,44 +2046,68 @@ def process_zip_path(
     lang: str,
 ) -> None:
     try:
-        with ZipFile(zip_path) as archive:
-            members = [member for member in archive.infolist() if not member.is_dir()]
-            flac_members = [member for member in members if member.filename.lower().endswith(".flac")]
+        with ZipFile(zip_path, 'r') as archive:
+            test_result = archive.testzip()
+            if test_result is not None:
+                rejected.append(f"{zip_name}: {text_for(lang).get('zip_corrupted', 'corrupted ZIP file')}")
+                return
+
+            flac_members = [
+                member for member in archive.infolist()
+                if not member.is_dir() and member.filename.lower().endswith(".flac")
+            ]
+
             if not flac_members:
                 rejected.append(f"{zip_name}: {text_for(lang)['zip_empty']}")
+                return
+
             if len(flac_members) > MAX_ZIP_MEMBERS:
                 rejected.append(f"{zip_name}: {text_for(lang)['zip_too_many_members']}")
                 return
+
             total_unpacked_bytes = 0
+            processed_count = 0
+
             for member in flac_members:
-                if member.file_size > MAX_ZIP_MEMBER_BYTES:
-                    rejected.append(f"{member.filename}: {text_for(lang)['zip_member_too_large']}")
-                    continue
-                if total_unpacked_bytes + member.file_size > MAX_ZIP_TOTAL_UNPACKED_BYTES:
-                    rejected.append(f"{zip_name}: {text_for(lang)['zip_unpacked_too_large']}")
-                    break
-                tmp_flac = Path(
-                    tempfile.NamedTemporaryFile(delete=False, dir=TMP_DIR, suffix=".flac").name
-                )
                 try:
-                    with archive.open(member) as source, tmp_flac.open("wb") as target:
-                        written_bytes = copy_stream_limited(
-                            source,
-                            target,
-                            MAX_ZIP_MEMBER_BYTES,
-                            "zip_member_too_large",
-                        )
-                    total_unpacked_bytes += written_bytes
-                    ingest_staged_flac(
-                        tmp_flac,
-                        Path(member.filename).name,
-                        uploader,
-                        accepted,
-                        rejected,
-                        lang,
+                    if member.file_size > MAX_ZIP_MEMBER_BYTES:
+                        rejected.append(f"{member.filename}: {text_for(lang)['zip_member_too_large']}")
+                        continue
+
+                    if total_unpacked_bytes + member.file_size > MAX_ZIP_TOTAL_UNPACKED_BYTES:
+                        rejected.append(f"{zip_name}: {text_for(lang)['zip_unpacked_too_large']}")
+                        break
+
+                    tmp_flac = Path(
+                        tempfile.NamedTemporaryFile(delete=False, dir=TMP_DIR, suffix=".flac").name
                     )
-                finally:
-                    tmp_flac.unlink(missing_ok=True)
+
+                    try:
+                        with archive.open(member, 'r') as source, tmp_flac.open("wb") as target:
+                            written_bytes = copy_stream_limited(
+                                source,
+                                target,
+                                MAX_ZIP_MEMBER_BYTES,
+                                "zip_member_too_large",
+                            )
+                        total_unpacked_bytes += written_bytes
+                        ingest_staged_flac(
+                            tmp_flac,
+                            Path(member.filename).name,
+                            uploader,
+                            accepted,
+                            rejected,
+                            lang,
+                        )
+                        processed_count += 1
+
+                    finally:
+                        tmp_flac.unlink(missing_ok=True)
+
+                except Exception as file_exc:
+                    rejected.append(f"{member.filename}: {file_exc}")
+                    continue
+
     except IngestError as exc:
         rejected.append(f"{zip_name}: {describe_error(str(exc), lang)}")
     except Exception as exc:  # noqa: BLE001
@@ -3093,6 +3148,11 @@ async def download(request: Request, track_id: int) -> FileResponse:
     if not user["is_active"]:
         raise HTTPException(status_code=403, detail=text_for(lang)["user_disabled"])
 
+    try:
+        enforce_download_rate_limit(request, user["username"])
+    except HTTPException as exc:
+        raise HTTPException(status_code=429, detail=text_for(lang)["rate_limit_download"]) from exc
+
     with get_db() as connection:
         row = connection.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
     if row is None:
@@ -3116,6 +3176,11 @@ async def download_bundle(request: Request, ids: str = "") -> FileResponse:
         raise HTTPException(status_code=403, detail=text_for(lang)["login_needed_notice"])
     if not user["is_active"]:
         raise HTTPException(status_code=403, detail=text_for(lang)["user_disabled"])
+
+    try:
+        enforce_download_rate_limit(request, user["username"])
+    except HTTPException as exc:
+        raise HTTPException(status_code=429, detail=text_for(lang)["rate_limit_download"]) from exc
 
     raw_ids = [part.strip() for part in ids.split(",") if part.strip()]
     track_ids: list[int] = []
