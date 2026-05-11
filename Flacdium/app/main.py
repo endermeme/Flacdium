@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -34,9 +35,20 @@ TMP_DIR = BASE_DIR / "tmp"
 REVIEW_DIR = TMP_DIR / "review"
 SPECTRUM_DIR = TMP_DIR / "spectrum"
 BATCH_DIR = TMP_DIR / "upload_batches"
+UPLOAD_STATUS_DIR = TMP_DIR / "upload_status"
 DB_PATH = DATA_DIR / "flacdium.sqlite3"
 
-for folder in (DATA_DIR, LIBRARY_DIR, OBJECTS_DIR, COVERS_DIR, TMP_DIR, REVIEW_DIR, SPECTRUM_DIR, BATCH_DIR):
+for folder in (
+    DATA_DIR,
+    LIBRARY_DIR,
+    OBJECTS_DIR,
+    COVERS_DIR,
+    TMP_DIR,
+    REVIEW_DIR,
+    SPECTRUM_DIR,
+    BATCH_DIR,
+    UPLOAD_STATUS_DIR,
+):
     folder.mkdir(parents=True, exist_ok=True)
 
 
@@ -113,6 +125,18 @@ SPECTRAL_MID_ENERGY_FLOOR = env_float("FLACDIUM_SPECTRAL_MID_ENERGY_FLOOR", 5.0)
 SPECTRAL_TOP_MID_RATIO_MAX = env_float("FLACDIUM_SPECTRAL_TOP_MID_RATIO_MAX", 0.70)
 SPECTRAL_TOP_LOW_RATIO_MAX = env_float("FLACDIUM_SPECTRAL_TOP_LOW_RATIO_MAX", 0.22)
 SPECTRAL_ROLLOFF_MAX_HZ = env_int("FLACDIUM_SPECTRAL_ROLLOFF_MAX_HZ", 17500)
+MIN_TRUE_SAMPLE_RATE = env_int("FLACDIUM_MIN_TRUE_SAMPLE_RATE", 48000)
+SPECTRAL_STRICT_MODE = env_bool("FLACDIUM_SPECTRAL_STRICT_MODE", False)
+ENABLE_QUALITY_REVIEW = env_bool("FLACDIUM_ENABLE_QUALITY_REVIEW", False)
+ACCEPTED_SAMPLE_RATES = (44100, 48000, 88200, 96000)
+ACCEPTED_BIT_DEPTHS = (16, 24, 32)
+MIN_TRUE_BIT_DEPTH = env_int("FLACDIUM_MIN_TRUE_BIT_DEPTH", 24)
+ENABLE_DR_ANALYSIS = env_bool("FLACDIUM_ENABLE_DR_ANALYSIS", True)
+MIN_DR_VALUE = env_int("FLACDIUM_MIN_DR_VALUE", 12)
+SPECTRAL_CUTOFF_SHARPNESS = env_float("FLACDIUM_SPECTRAL_CUTOFF_SHARPNESS", 0.85)
+SPECTRAL_BANDWIDTH_SMOOTHNESS = env_float("FLACDIUM_SPECTRAL_BANDWIDTH_SMOOTHNESS", 0.85)
+SPECTRUM_RENDER_STYLE = (os.getenv("FLACDIUM_SPECTRUM_RENDER_STYLE") or "viridis").strip().lower() or "viridis"
+SPECTRUM_RENDER_VERSION = env_int("FLACDIUM_SPECTRUM_RENDER_VERSION", 2)
 LOGIN_RATE_LIMIT = env_int("FLACDIUM_LOGIN_RATE_LIMIT", 12)
 LOGIN_RATE_WINDOW_SECONDS = env_int("FLACDIUM_LOGIN_RATE_WINDOW_SECONDS", 900)
 SIGNUP_RATE_LIMIT = env_int("FLACDIUM_SIGNUP_RATE_LIMIT", 6)
@@ -207,8 +231,10 @@ TEXT: dict[str, dict[str, str]] = {
         "genre_missing": "chưa gắn thể loại",
         "disc": "đĩa",
         "download_label": "flac",
-        "download_many_flac": "flac đã chọn",
-        "download_zip": "zip đã chọn",
+        "download_many_flac": "Tải Flacs",
+        "download_zip": "Tải ZIP",
+        "preview_label": "nghe",
+        "preview_title": "nghe thử",
         "select": "chọn",
         "empty_index": "chưa có bài nào",
         "fresh": "vừa lên",
@@ -234,6 +260,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_title": "quản lý tài khoản",
         "admin_users": "tài khoản",
         "admin_logs": "log đăng nhập",
+        "admin_tracks": "quản lý nhạc",
         "admin_status": "trạng thái",
         "admin_active": "đang mở",
         "admin_disabled": "đã khóa",
@@ -293,6 +320,11 @@ TEXT: dict[str, dict[str, str]] = {
         "low_quality_sample_rate": "sample rate thấp hơn mức cho phép",
         "low_quality_bit_depth": "bit depth thấp hơn mức cho phép",
         "lossy_transcode_suspected": "phổ tần nghi là transcode lossy giả flac",
+        "lossy_transcode_rejected": "file chất lượng kém, đã bị từ chối (có thể là lossy hoặc transcode)",
+        "lossy_transcode_review": "file chất lượng trung bình, đã thêm vào hàng chờ duyệt (cần admin review)",
+        "invalid_sample_rate": "tần số mẫu không hợp lệ (chỉ chấp nhận 44.1kHz, 48kHz, 88.2kHz, 96kHz)",
+        "invalid_bit_depth": "độ sâu bit không hợp lệ (chỉ chấp nhận 16-bit, 24-bit, 32-bit)",
+        "low_dr_value_warning": "dải động quá thấp (DR < {DR_VALUE}), có thể là lossy",
         "duplicate_hash": "trùng hệt file đã có trong kho",
         "duplicate_slot": "trùng artist/album/track với bài đã có",
         "duplicate_credited": "bài đã có sẵn, đã gộp thêm credit người up",
@@ -316,6 +348,24 @@ TEXT: dict[str, dict[str, str]] = {
         "queued_duplicate_review": "file trùng đã vào hàng chờ duyệt",
         "queued_quality_review": "file nghi chất lượng thấp đã vào hàng chờ duyệt",
         "admin_reviews": "hàng chờ duyệt",
+        "admin_tab_accounts": "tài khoản",
+        "admin_tab_sessions": "sessions",
+        "admin_tab_tracks": "nhạc",
+        "admin_tab_reviews": "duyệt",
+        "admin_select": "chọn",
+        "admin_select_all": "chọn trang",
+        "admin_music_file": "bài nhạc",
+        "admin_music_meta": "meta",
+        "admin_music_uploader": "người up",
+        "admin_music_added": "thêm",
+        "admin_music_actions": "nghe / phổ / tải",
+        "admin_logs_empty": "không có log",
+        "admin_tracks_empty": "không có bài trong kho",
+        "admin_bulk_enable": "mở đã chọn",
+        "admin_bulk_disable": "khóa đã chọn",
+        "admin_bulk_delete_logs": "xóa log đã chọn",
+        "admin_bulk_approve": "duyệt đã chọn",
+        "admin_bulk_reject": "loại đã chọn",
         "admin_review_file": "file",
         "admin_review_reason": "lý do",
         "admin_review_meta": "meta",
@@ -337,6 +387,8 @@ TEXT: dict[str, dict[str, str]] = {
         "quickfind_albums": "tìm album",
         "quickfind_uploaders": "tìm người up",
         "jump": "mở",
+        "bulk_delete": "xóa đã chọn",
+        "bulk_delete_success": "đã xóa thành công",
         "page_prev": "trước",
         "page_next": "sau",
         "page_label": "trang",
@@ -410,6 +462,8 @@ TEXT: dict[str, dict[str, str]] = {
         "download_label": "flac",
         "download_many_flac": "selected flac",
         "download_zip": "selected zip",
+        "preview_label": "listen",
+        "preview_title": "preview",
         "select": "select",
         "empty_index": "index empty",
         "fresh": "fresh",
@@ -435,6 +489,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_title": "account admin",
         "admin_users": "accounts",
         "admin_logs": "login logs",
+        "admin_tracks": "tracks",
         "admin_status": "status",
         "admin_active": "active",
         "admin_disabled": "disabled",
@@ -494,6 +549,8 @@ TEXT: dict[str, dict[str, str]] = {
         "low_quality_sample_rate": "sample rate is below the allowed floor",
         "low_quality_bit_depth": "bit depth is below the allowed floor",
         "lossy_transcode_suspected": "frequency spectrum looks like a lossy transcode wrapped as flac",
+        "lossy_transcode_rejected": "poor quality file rejected (possible lossy or transcode)",
+        "lossy_transcode_review": "medium quality file queued for review (requires admin approval)",
         "duplicate_hash": "exact file already exists in the library",
         "duplicate_slot": "artist/album/track slot already exists",
         "duplicate_credited": "track already exists, uploader credit was merged",
@@ -517,6 +574,24 @@ TEXT: dict[str, dict[str, str]] = {
         "queued_duplicate_review": "duplicate upload queued for review",
         "queued_quality_review": "suspicious low-quality file queued for review",
         "admin_reviews": "review queue",
+        "admin_tab_accounts": "accounts",
+        "admin_tab_sessions": "sessions",
+        "admin_tab_tracks": "tracks",
+        "admin_tab_reviews": "review",
+        "admin_select": "select",
+        "admin_select_all": "select page",
+        "admin_music_file": "track",
+        "admin_music_meta": "metadata",
+        "admin_music_uploader": "uploader",
+        "admin_music_added": "added",
+        "admin_music_actions": "listen / spectrum / download",
+        "admin_logs_empty": "no logs",
+        "admin_tracks_empty": "no tracks in library",
+        "admin_bulk_enable": "enable selected",
+        "admin_bulk_disable": "disable selected",
+        "admin_bulk_delete_logs": "delete selected logs",
+        "admin_bulk_approve": "approve selected",
+        "admin_bulk_reject": "reject selected",
         "admin_review_file": "file",
         "admin_review_reason": "reason",
         "admin_review_meta": "metadata",
@@ -537,6 +612,8 @@ TEXT: dict[str, dict[str, str]] = {
         "quickfind_artists": "find artists",
         "quickfind_albums": "find albums",
         "quickfind_uploaders": "find uploaders",
+        "bulk_delete": "delete selected",
+        "bulk_delete_success": "successfully deleted",
         "jump": "open",
         "page_prev": "prev",
         "page_next": "next",
@@ -560,7 +637,17 @@ templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 
 
 def init_storage() -> None:
-    for folder in (DATA_DIR, LIBRARY_DIR, OBJECTS_DIR, COVERS_DIR, TMP_DIR, REVIEW_DIR, SPECTRUM_DIR, BATCH_DIR):
+    for folder in (
+        DATA_DIR,
+        LIBRARY_DIR,
+        OBJECTS_DIR,
+        COVERS_DIR,
+        TMP_DIR,
+        REVIEW_DIR,
+        SPECTRUM_DIR,
+        BATCH_DIR,
+        UPLOAD_STATUS_DIR,
+    ):
         folder.mkdir(parents=True, exist_ok=True)
 
 
@@ -850,6 +937,37 @@ def compute_audio_fingerprint(source_path: Path, duration_seconds: int) -> str:
     return fingerprint
 
 
+def analyze_dynamic_range(source_path: Path, duration_seconds: int) -> float | None:
+    if duration_seconds < MIN_SPECTRAL_ANALYSIS_DURATION_SECONDS:
+        return None
+    try:
+        result = subprocess.check_output(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(source_path),
+                "-af",
+                "astats=measure_dr=peak=true:measure_dr=ebur128=true",
+                "-f",
+                "null",
+                "-",
+            ],
+            timeout=60,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        for line in result.splitlines():
+            if "ebur128" in line.lower() and "loudness" in line.lower():
+                try:
+                    return float(line.split("=")[-1].strip())
+                except ValueError:
+                    continue
+    except Exception:  # noqa: BLE001
+        return None
+
 def analyze_spectral_profile(source_path: Path, sample_rate: int, duration_seconds: int) -> dict[str, float]:
     if duration_seconds < MIN_SPECTRAL_ANALYSIS_DURATION_SECONDS or sample_rate < MIN_SAMPLE_RATE:
         return {}
@@ -925,17 +1043,59 @@ def analyze_spectral_profile(source_path: Path, sample_rate: int, duration_secon
     }
 
 
-def spectral_profile_suspicious(profile: dict[str, float], sample_rate: int) -> bool:
+def classify_flac_quality(profile: dict[str, float], sample_rate: int, dr_value: float | None = None) -> str:
     if not profile:
-        return False
+        return "accept"
+
+    if dr_value is not None and ENABLE_DR_ANALYSIS:
+        if dr_value < MIN_DR_VALUE:
+            return "reject"  # DR thấp quá
+        elif dr_value < 14:
+            return "review"  # DR trung bình - cần review
+        else:
+            return "accept"  # DR tốt
+
+    quality_score = 0
+    suspicious_indicators = 0
+
     if profile["low20"] < SPECTRAL_LOW_ENERGY_FLOOR or profile["mid20"] < SPECTRAL_MID_ENERGY_FLOOR:
+        return "review"
+
+    if profile["top_mid_ratio"] <= SPECTRAL_TOP_MID_RATIO_MAX:
+        quality_score += 1
+        suspicious_indicators += 1
+
+    if profile["top_low_ratio"] <= SPECTRAL_TOP_LOW_RATIO_MAX:
+        quality_score += 1
+        suspicious_indicators += 1
+
+    if profile["rolloff_avg_hz"] <= 15000:
+        quality_score += 1
+        suspicious_indicators += 1
+
+    rolloff_ratio = profile["rolloff_avg_hz"] / max(sample_rate / 2, 1.0)
+    if rolloff_ratio <= 0.80:
+        quality_score += 1
+        suspicious_indicators += 1
+
+    if quality_score >= 4 and SPECTRAL_STRICT_MODE:
+        return "reject"
+    if quality_score >= 2:
+        return "review"
+
+    return "accept"  # Chất lượng tốt
+
+
+def spectral_profile_suspicious(profile: dict[str, float], sample_rate: int, dr_value: float | None = None) -> bool:
+    quality_action = classify_flac_quality(profile, sample_rate, dr_value)
+
+    if quality_action == "accept":
         return False
-    return (
-        profile["top_mid_ratio"] <= SPECTRAL_TOP_MID_RATIO_MAX
-        and profile["top_low_ratio"] <= SPECTRAL_TOP_LOW_RATIO_MAX
-        and profile["rolloff_avg_hz"] > 0
-        and profile["rolloff_avg_hz"] <= min((sample_rate / 2.0) - 800.0, float(SPECTRAL_ROLLOFF_MAX_HZ))
-    )
+
+    if quality_action == "reject":
+        return True
+
+    return quality_action in ("reject", "review")
 
 
 def fingerprint_similarity(left: str, right: str) -> float:
@@ -1463,7 +1623,64 @@ def cleanup_track_file_refs(old_blob_path: str, old_stored_path: str, old_cover_
 
 
 def spectrum_cache_path(track_id: int, file_hash: str) -> Path:
-    return SPECTRUM_DIR / f"{track_id}-{file_hash[:16]}.png"
+    return SPECTRUM_DIR / f"{track_id}-{file_hash[:16]}-v{SPECTRUM_RENDER_VERSION}.png"
+
+
+def spectrum_filter_for_track(duration_seconds: int) -> str:
+    spectrum_size = "1600x900" if duration_seconds > 300 else "1280x720"
+    color = SPECTRUM_RENDER_STYLE
+    if color not in {
+        "channel",
+        "intensity",
+        "rainbow",
+        "moreland",
+        "nebulae",
+        "fire",
+        "fiery",
+        "fruit",
+        "cool",
+        "magma",
+        "green",
+        "viridis",
+        "plasma",
+        "cividis",
+        "terrain",
+    }:
+        color = "viridis"
+    return (
+        "showspectrumpic="
+        f"s={spectrum_size}:"
+        "legend=1:"
+        f"color={color}:"
+        "scale=log:"
+        "fscale=log:"
+        "win_func=bharris:"
+        "gain=1.05:"
+        "drange=140:"
+        "saturation=1.1"
+    )
+
+
+def render_spectrum_image(source_path: Path, target_path: Path, duration_seconds: int) -> None:
+    spectrum_filter = spectrum_filter_for_track(duration_seconds)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(source_path),
+            "-lavfi",
+            spectrum_filter,
+            "-frames:v",
+            "1",
+            str(target_path),
+            "-y",
+        ],
+        check=True,
+        timeout=30,
+    )
 
 
 def ensure_spectrum_image(track_row: sqlite3.Row) -> Path:
@@ -1485,27 +1702,8 @@ def ensure_spectrum_image(track_row: sqlite3.Row) -> Path:
         return target_path
 
     duration_seconds = int(track_row["duration_seconds"] or 0)
-    spectrum_size = "1200x600" if duration_seconds > 300 else "800x400"
-
     try:
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-i",
-                str(source_path),
-                "-lavfi",
-                f"showspectrumpic=s={spectrum_size}:legend=disabled:color=intensity:scale=lin:gain=2",
-                "-frames:v",
-                "1",
-                str(target_path),
-                "-y",
-            ],
-            check=True,
-            timeout=30,
-        )
+        render_spectrum_image(source_path, target_path, duration_seconds)
     except subprocess.TimeoutExpired:
         if not target_path.exists():
             raise HTTPException(status_code=500, detail="spectrum generation timeout")
@@ -1513,6 +1711,31 @@ def ensure_spectrum_image(track_row: sqlite3.Row) -> Path:
         if not target_path.exists():
             raise HTTPException(status_code=500, detail="spectrum generation failed")
 
+    return target_path
+
+
+def ensure_review_spectrum_image(review_item: sqlite3.Row) -> Path:
+    candidate_path = REVIEW_DIR / str(review_item["candidate_path"] or "")
+    if not candidate_path.exists():
+        raise FileNotFoundError(candidate_path)
+    file_hash = hash_file(candidate_path)
+    target_path = SPECTRUM_DIR / f"review-{int(review_item['id'])}-{file_hash[:16]}-v{SPECTRUM_RENDER_VERSION}.png"
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    if target_path.exists():
+        return target_path
+    try:
+        audio = FLAC(str(candidate_path))
+        duration_seconds = int(round(audio.info.length))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="broken review candidate") from exc
+    try:
+        render_spectrum_image(candidate_path, target_path, duration_seconds)
+    except subprocess.TimeoutExpired:
+        if not target_path.exists():
+            raise HTTPException(status_code=500, detail="spectrum generation timeout")
+    except subprocess.CalledProcessError:
+        if not target_path.exists():
+            raise HTTPException(status_code=500, detail="spectrum generation failed")
     return target_path
 
 
@@ -1541,32 +1764,38 @@ def unique_bundle_member_name(name: str, used_names: set[str]) -> str:
 def build_uploader_map(connection: sqlite3.Connection, track_ids: list[int]) -> dict[int, list[str]]:
     if not track_ids:
         return {}
+
     if not table_exists(connection, "track_uploaders"):
-        rows = connection.execute(
-            f"""
-            SELECT id AS track_id, uploader AS username
-            FROM tracks
-            WHERE id IN ({",".join("?" for _ in track_ids)})
-            """,
-            track_ids,
-        ).fetchall()
-        return {
-            int(row["track_id"]): [str(row["username"])]
-            for row in rows
-        }
+        return {}
+
     placeholders = ",".join("?" for _ in track_ids)
     rows = connection.execute(
         f"""
-        SELECT track_id, username
-        FROM track_uploaders
-        WHERE track_id IN ({placeholders})
-        ORDER BY added_at DESC, username COLLATE NOCASE ASC
+        SELECT t.id AS track_id, t.uploader AS username
+        FROM tracks t
+        WHERE t.id IN ({placeholders})
+        ORDER BY t.uploaded_at DESC
         """,
         track_ids,
     ).fetchall()
-    mapping: dict[int, list[str]] = {track_id: [] for track_id in track_ids}
+
+    mapping: dict[int, list[str]] = {}
     for row in rows:
-        mapping.setdefault(int(row["track_id"]), []).append(str(row["username"]))
+        track_id = int(row["track_id"])
+        if table_exists(connection, "track_uploaders"):
+            uploader_rows = connection.execute(
+                """
+                SELECT username
+                FROM track_uploaders
+                WHERE track_id = ?
+                ORDER BY added_at DESC, username COLLATE NOCASE ASC
+                """,
+                (track_id,),
+            ).fetchall()
+            mapping[track_id] = [r["username"] for r in uploader_rows]
+        else:
+            mapping[track_id] = [row["username"]]
+
     return mapping
 
 
@@ -1609,21 +1838,44 @@ def extract_flac_payload(source_path: Path, allow_quality_override: bool = False
         raise IngestError("unsupported_cover")
     if not allow_quality_override and int(audio.info.sample_rate) < MIN_SAMPLE_RATE:
         raise IngestError("low_quality_sample_rate")
+    if not allow_quality_override and int(audio.info.sample_rate) not in ACCEPTED_SAMPLE_RATES:
+        raise IngestError("invalid_sample_rate")
+
     bit_depth = int(getattr(audio.info, "bits_per_sample", 0) or 0)
     if not allow_quality_override and bit_depth and bit_depth < MIN_BIT_DEPTH:
         raise IngestError("low_quality_bit_depth")
+    if not allow_quality_override and bit_depth not in ACCEPTED_BIT_DEPTHS:
+        raise IngestError("invalid_bit_depth")
 
     duration_seconds = int(round(audio.info.length))
-    spectral_profile = analyze_spectral_profile(
-        source_path,
-        int(audio.info.sample_rate),
-        duration_seconds,
-    )
-    if (
-        not allow_quality_override
-        and spectral_profile_suspicious(spectral_profile, int(audio.info.sample_rate))
-    ):
-        raise IngestError("lossy_transcode_suspected")
+    dr_value: float | None = None
+    spectral_profile: dict[str, float] = {}
+    quality_guard_enabled = ENABLE_QUALITY_REVIEW or SPECTRAL_STRICT_MODE
+    if quality_guard_enabled and not allow_quality_override:
+        dr_value = analyze_dynamic_range(source_path, duration_seconds)
+        spectral_profile = analyze_spectral_profile(
+            source_path,
+            int(audio.info.sample_rate),
+            duration_seconds,
+        )
+
+        if spectral_profile:
+            spectral_profile["dr_value"] = dr_value if dr_value is not None else 0.0
+        if spectral_profile_suspicious(
+            spectral_profile,
+            int(audio.info.sample_rate),
+            dr_value,
+        ):
+            quality_action = classify_flac_quality(
+                spectral_profile,
+                int(audio.info.sample_rate),
+                dr_value,
+            )
+
+            if quality_action == "reject":
+                raise IngestError("lossy_transcode_rejected")
+            if quality_action == "review":
+                raise IngestError("lossy_transcode_review")
 
     cover_hash = hash_bytes(picture.data)
     audio_fingerprint = compute_audio_fingerprint(source_path, duration_seconds)
@@ -1697,11 +1949,35 @@ def find_duplicate(
             meta["audio_fingerprint"],
             str(candidate["audio_fingerprint"] or ""),
         )
-        if (
-            duration_delta <= MAX_FINGERPRINT_DURATION_DELTA_SECONDS
-            and similarity >= MIN_FINGERPRINT_SIMILARITY
-        ):
-            return {"action": "merge_credit", "track": candidate, "reason": "duplicate_hash"}
+
+        if duration_delta <= MAX_FINGERPRINT_DURATION_DELTA_SECONDS and similarity >= MIN_FINGERPRINT_SIMILARITY:
+            spectral_similarity = similarity
+
+            quality_score = 0
+            if spectral_similarity > 0.98:
+                quality_score += 1
+            if meta.get("spectral_profile") and candidate.get("spectral_profile"):
+                existing_profile = candidate.get("spectral_profile", {})
+                new_profile = meta.get("spectral_profile", {})
+
+                if existing_profile.get("top_mid_ratio") and new_profile.get("top_mid_ratio"):
+                    ratio_diff = abs(existing_profile["top_mid_ratio"] - new_profile["top_mid_ratio"])
+                    if ratio_diff < 0.05:  # Very similar spectral profile
+                        quality_score += 2
+                    elif ratio_diff < 0.15:  # Somewhat similar
+                        quality_score += 1
+
+                rolloff_diff = abs(
+                    existing_profile.get("rolloff_avg_hz", 0) - new_profile.get("rolloff_avg_hz", 0)
+                )
+                if rolloff_diff < 500:  # Very similar rolloff
+                    quality_score += 1
+                elif rolloff_diff < 1500:  # Somewhat similar
+                    quality_score += 0.5
+
+            if quality_score >= 3:
+                return {"action": "merge_credit", "track": candidate, "reason": "duplicate_hash"}
+
     return {"action": "reject", "track": candidates[0], "reason": "duplicate_slot"}
 
 
@@ -1986,6 +2262,57 @@ def cleanup_batch_dir(batch_id: str) -> None:
     shutil.rmtree(batch_work_dir(batch_id), ignore_errors=True)
 
 
+def upload_status_path(batch_id: str) -> Path:
+    safe_batch_id = normalize_batch_id(batch_id)
+    if not safe_batch_id:
+        raise IngestError("nothing_uploaded")
+    return UPLOAD_STATUS_DIR / f"{safe_batch_id}.json"
+
+
+def read_upload_status(batch_id: str) -> dict[str, Any] | None:
+    try:
+        path = upload_status_path(batch_id)
+    except IngestError:
+        return None
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def write_upload_status(batch_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    path = upload_status_path(batch_id)
+    base_payload = {
+        "batch_id": normalize_batch_id(batch_id),
+        "status": "queued",
+        "uploader": "",
+        "lang": "vi",
+        "notice": "",
+        "accepted": [],
+        "rejected": [],
+        "status_code": 200,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    base_payload.update(payload)
+    base_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    path.write_text(json.dumps(base_payload, ensure_ascii=False), encoding="utf-8")
+    return base_payload
+
+
+def upload_status_urls(batch_id: str, lang: str) -> dict[str, str]:
+    safe_batch_id = normalize_batch_id(batch_id)
+    return {
+        "status_url": f"/upload/status/{safe_batch_id}?lang={lang}",
+        "result_url": f"/upload/result/{safe_batch_id}?lang={lang}",
+    }
+
+
+def is_xhr_request(request: Request) -> bool:
+    return request.headers.get("x-requested-with", "").lower() == "xmlhttprequest"
+
+
 def describe_error(code: str, lang: str) -> str:
     t = text_for(lang)
     if ":" not in code:
@@ -1999,6 +2326,7 @@ def describe_error(code: str, lang: str) -> str:
 def should_queue_review_for_error(code: str) -> bool:
     return code in {
         "lossy_transcode_suspected",
+        "lossy_transcode_review",
         "low_quality_sample_rate",
         "low_quality_bit_depth",
     }
@@ -2288,6 +2616,78 @@ def process_completed_batch(
             ingest_staged_flac(part_path, str(meta["name"]), uploader, accepted, rejected, lang)
 
 
+def run_upload_batch_job(batch_id: str, uploader: str, lang: str) -> None:
+    accepted: list[str] = []
+    rejected: list[str] = []
+    write_upload_status(
+        batch_id,
+        {
+            "status": "processing",
+            "uploader": uploader,
+            "lang": lang,
+            "notice": text_for(lang)["upload_progress_processing"],
+        },
+    )
+    try:
+        process_completed_batch(batch_id, uploader, accepted, rejected, lang)
+        if not accepted and not rejected:
+            write_upload_status(
+                batch_id,
+                {
+                    "status": "failed",
+                    "uploader": uploader,
+                    "lang": lang,
+                    "notice": text_for(lang)["nothing_uploaded"],
+                    "accepted": accepted,
+                    "rejected": rejected,
+                    "status_code": 400,
+                },
+            )
+            return
+
+        notice = text_for(lang)["accepted_summary"].format(accepted=len(accepted), rejected=len(rejected))
+        write_upload_status(
+            batch_id,
+            {
+                "status": "completed",
+                "uploader": uploader,
+                "lang": lang,
+                "notice": notice,
+                "accepted": accepted,
+                "rejected": rejected,
+                "status_code": 200,
+            },
+        )
+    except IngestError as exc:
+        write_upload_status(
+            batch_id,
+            {
+                "status": "failed",
+                "uploader": uploader,
+                "lang": lang,
+                "notice": describe_error(str(exc), lang),
+                "accepted": accepted,
+                "rejected": rejected,
+                "status_code": 400,
+            },
+        )
+    except Exception:  # noqa: BLE001
+        write_upload_status(
+            batch_id,
+            {
+                "status": "failed",
+                "uploader": uploader,
+                "lang": lang,
+                "notice": text_for(lang)["upload_progress_error"],
+                "accepted": accepted,
+                "rejected": rejected,
+                "status_code": 500,
+            },
+        )
+    finally:
+        cleanup_batch_dir(batch_id)
+
+
 def human_duration(seconds: int) -> str:
     minutes, seconds = divmod(seconds, 60)
     return f"{minutes}:{seconds:02d}"
@@ -2378,38 +2778,13 @@ def build_pagination(
 
 
 def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dict[str, dict[str, Any]]:
-    artists_page = parse_page(request.query_params.get("artists_page"))
-    albums_page = parse_page(request.query_params.get("albums_page"))
-    uploaders_page = parse_page(request.query_params.get("uploaders_page"))
-
-    artists_total = connection.execute(
-        "SELECT COUNT(*) AS total FROM (SELECT artist FROM tracks GROUP BY artist)"
-    ).fetchone()["total"]
-    albums_total = connection.execute(
-        "SELECT COUNT(*) AS total FROM (SELECT artist, album FROM tracks GROUP BY artist, album)"
-    ).fetchone()["total"]
-    if table_exists(connection, "track_uploaders"):
-        uploaders_total = connection.execute(
-            "SELECT COUNT(*) AS total FROM (SELECT username FROM track_uploaders GROUP BY username)"
-        ).fetchone()["total"]
-    else:
-        uploaders_total = connection.execute(
-            "SELECT COUNT(*) AS total FROM (SELECT uploader FROM tracks GROUP BY uploader)"
-        ).fetchone()["total"]
-
-    artists_page = min(artists_page, max((artists_total + SIDEBAR_PAGE_SIZE - 1) // SIDEBAR_PAGE_SIZE, 1))
-    albums_page = min(albums_page, max((albums_total + SIDEBAR_PAGE_SIZE - 1) // SIDEBAR_PAGE_SIZE, 1))
-    uploaders_page = min(uploaders_page, max((uploaders_total + SIDEBAR_PAGE_SIZE - 1) // SIDEBAR_PAGE_SIZE, 1))
-
     artists = connection.execute(
         """
         SELECT artist, COUNT(*) AS tracks
         FROM tracks
         GROUP BY artist
         ORDER BY tracks DESC, artist COLLATE NOCASE ASC
-        LIMIT ? OFFSET ?
         """,
-        (SIDEBAR_PAGE_SIZE, (artists_page - 1) * SIDEBAR_PAGE_SIZE),
     ).fetchall()
     albums = connection.execute(
         """
@@ -2417,9 +2792,7 @@ def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dic
         FROM tracks
         GROUP BY artist, album
         ORDER BY MAX(uploaded_at) DESC
-        LIMIT ? OFFSET ?
         """,
-        (SIDEBAR_PAGE_SIZE, (albums_page - 1) * SIDEBAR_PAGE_SIZE),
     ).fetchall()
     if table_exists(connection, "track_uploaders"):
         uploaders = connection.execute(
@@ -2428,9 +2801,7 @@ def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dic
             FROM track_uploaders
             GROUP BY username
             ORDER BY tracks DESC, username COLLATE NOCASE ASC
-            LIMIT ? OFFSET ?
             """,
-            (SIDEBAR_PAGE_SIZE, (uploaders_page - 1) * SIDEBAR_PAGE_SIZE),
         ).fetchall()
     else:
         uploaders = connection.execute(
@@ -2439,30 +2810,13 @@ def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dic
             FROM tracks
             GROUP BY uploader
             ORDER BY tracks DESC, uploader COLLATE NOCASE ASC
-            LIMIT ? OFFSET ?
             """,
-            (SIDEBAR_PAGE_SIZE, (uploaders_page - 1) * SIDEBAR_PAGE_SIZE),
         ).fetchall()
 
     return {
-        "artists": {
-            "items": artists,
-            "pagination": build_pagination(
-                request, "artists_page", artists_page, artists_total, SIDEBAR_PAGE_SIZE
-            ),
-        },
-        "albums": {
-            "items": albums,
-            "pagination": build_pagination(
-                request, "albums_page", albums_page, albums_total, SIDEBAR_PAGE_SIZE
-            ),
-        },
-        "uploaders": {
-            "items": uploaders,
-            "pagination": build_pagination(
-                request, "uploaders_page", uploaders_page, uploaders_total, SIDEBAR_PAGE_SIZE
-            ),
-        },
+        "artists": {"items": artists},
+        "albums": {"items": albums},
+        "uploaders": {"items": uploaders},
     }
 
 
@@ -2500,7 +2854,6 @@ def fetch_tracks(
     artist = (request.query_params.get("artist") or "").strip()
     album = (request.query_params.get("album") or "").strip()
     sort = request.query_params.get("sort") or "newest"
-    track_page = parse_page(request.query_params.get("track_page"))
     order_by = SORTS.get(sort, SORTS["newest"])
 
     sql = "FROM tracks WHERE 1=1"
@@ -2523,11 +2876,9 @@ def fetch_tracks(
         sql += " AND album = ?"
         params.append(album)
 
-    total_items = connection.execute(f"SELECT COUNT(*) AS total {sql}", params).fetchone()["total"]
-    pagination = build_pagination(request, "track_page", track_page, total_items, TRACKS_PER_PAGE)
     rows = connection.execute(
-        f"SELECT * {sql} ORDER BY {order_by} LIMIT ? OFFSET ?",
-        (*params, TRACKS_PER_PAGE, (pagination["page"] - 1) * TRACKS_PER_PAGE),
+        f"SELECT * {sql} ORDER BY {order_by}",
+        params,
     ).fetchall()
     filters = {
         "q": q,
@@ -2548,7 +2899,7 @@ def fetch_tracks(
         track["uploader_names"] = uploader_map.get(int(row["id"]), [str(row["uploader"])])
         track["uploader_display"], track["uploader_full"] = format_uploader_display(track["uploader_names"])
         tracks.append(track)
-    return tracks, filters, pagination
+    return tracks, filters, {"total_items": len(tracks)}
 
 
 def fetch_quick_links(connection: sqlite3.Connection) -> dict[str, list[sqlite3.Row]]:
@@ -2559,9 +2910,7 @@ def fetch_quick_links(connection: sqlite3.Connection) -> dict[str, list[sqlite3.
             FROM track_uploaders
             GROUP BY username
             ORDER BY tracks DESC, username COLLATE NOCASE ASC
-            LIMIT ?
             """,
-            (QUICK_LINKS_LIMIT,),
         ).fetchall()
     else:
         uploaders = connection.execute(
@@ -2570,9 +2919,7 @@ def fetch_quick_links(connection: sqlite3.Connection) -> dict[str, list[sqlite3.
             FROM tracks
             GROUP BY uploader
             ORDER BY tracks DESC, uploader COLLATE NOCASE ASC
-            LIMIT ?
             """,
-            (QUICK_LINKS_LIMIT,),
         ).fetchall()
     return {
         "artists": connection.execute(
@@ -2581,9 +2928,7 @@ def fetch_quick_links(connection: sqlite3.Connection) -> dict[str, list[sqlite3.
             FROM tracks
             GROUP BY artist
             ORDER BY tracks DESC, artist COLLATE NOCASE ASC
-            LIMIT ?
             """,
-            (QUICK_LINKS_LIMIT,),
         ).fetchall(),
         "albums": connection.execute(
             """
@@ -2591,9 +2936,7 @@ def fetch_quick_links(connection: sqlite3.Connection) -> dict[str, list[sqlite3.
             FROM tracks
             GROUP BY artist, album
             ORDER BY MAX(uploaded_at) DESC
-            LIMIT ?
             """,
-            (QUICK_LINKS_LIMIT,),
         ).fetchall(),
         "uploaders": uploaders,
     }
@@ -2631,6 +2974,15 @@ def fetch_admin_users(connection: sqlite3.Connection) -> list[dict[str, Any]]:
         item["last_login_label"] = human_datetime(row["last_login_at"])
         users.append(item)
     return users
+
+
+def fetch_admin_summary(connection: sqlite3.Connection) -> dict[str, int]:
+    return {
+        "users": int(connection.execute("SELECT COUNT(*) FROM users").fetchone()[0]),
+        "logs": int(connection.execute("SELECT COUNT(*) FROM login_logs").fetchone()[0]),
+        "tracks": int(connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]),
+        "reviews": int(connection.execute("SELECT COUNT(*) FROM review_items WHERE status = 'pending'").fetchone()[0]),
+    }
 
 
 def fetch_admin_logs(connection: sqlite3.Connection, request: Request) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -2685,6 +3037,46 @@ def fetch_admin_logs(connection: sqlite3.Connection, request: Request) -> tuple[
     return logs, pagination
 
 
+def fetch_admin_tracks(
+    connection: sqlite3.Connection,
+    request: Request,
+    lang: str,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    q = (request.query_params.get("track_q") or "").strip()
+    uploader = (request.query_params.get("track_uploader") or "").strip()
+    sql = "FROM tracks WHERE 1=1"
+    params: list[Any] = []
+
+    if q:
+        token = f"%{q}%"
+        sql += " AND (title LIKE ? OR artist LIKE ? OR album LIKE ? OR original_filename LIKE ?)"
+        params.extend([token, token, token, token])
+    if uploader:
+        if table_exists(connection, "track_uploaders"):
+            sql += " AND EXISTS (SELECT 1 FROM track_uploaders tu WHERE tu.track_id = tracks.id AND tu.username = ?)"
+        else:
+            sql += " AND uploader = ?"
+        params.append(uploader)
+
+    rows = connection.execute(
+        f"SELECT * {sql} ORDER BY uploaded_at DESC, id DESC LIMIT 500",
+        params,
+    ).fetchall()
+    uploader_map = build_uploader_map(connection, [int(row["id"]) for row in rows])
+    tracks: list[dict[str, Any]] = []
+    for row in rows:
+        track = dict(row)
+        track["duration_label"] = human_duration(row["duration_seconds"])
+        track["specs_label"] = human_specs(row)
+        track["size_label"] = human_size(row["file_size"])
+        track["uploaded_label"] = human_datetime(row["uploaded_at"])
+        track["cover_url"] = f"/covers/{row['cover_path']}"
+        track["uploader_names"] = uploader_map.get(int(row["id"]), [str(row["uploader"])])
+        track["uploader_display"], track["uploader_full"] = format_uploader_display(track["uploader_names"])
+        tracks.append(track)
+    return tracks, {"track_q": q, "track_uploader": uploader}
+
+
 def fetch_admin_reviews(connection: sqlite3.Connection, lang: str) -> list[dict[str, Any]]:
     rows = connection.execute(
         """
@@ -2702,8 +3094,13 @@ def fetch_admin_reviews(connection: sqlite3.Connection, lang: str) -> list[dict[
         item["created_label"] = human_datetime(row["created_at"])
         item["candidate_exists"] = bool(row["candidate_path"]) and (REVIEW_DIR / row["candidate_path"]).exists()
         item["reason_label"] = t.get(str(row["reason"]), str(row["reason"]))
+        item["size_label"] = human_size(int(row["file_size"] or 0))
         items.append(item)
     return items
+
+
+def normalize_admin_tab(raw_value: str | None) -> str:
+    return raw_value if raw_value in {"accounts", "sessions", "tracks", "reviews"} else "accounts"
 
 
 def render_admin(request: Request, notice: str = "", status_code: int = 200) -> HTMLResponse:
@@ -2711,20 +3108,37 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
     lang = get_lang(request)
     t = text_for(lang)
     csrf_token = get_or_create_csrf_token(request)
+    active_tab = normalize_admin_tab(request.query_params.get("tab"))
     with get_db() as connection:
-        users = fetch_admin_users(connection)
-        logs, logs_pagination = fetch_admin_logs(connection, request)
-        reviews = fetch_admin_reviews(connection, lang)
+        summary = fetch_admin_summary(connection)
+        users: list[dict[str, Any]] = []
+        logs: list[dict[str, Any]] = []
+        tracks: list[dict[str, Any]] = []
+        reviews: list[dict[str, Any]] = []
+        logs_pagination: dict[str, Any] = {"total_items": 0, "page": 1, "total_pages": 1, "prev_url": "", "next_url": "", "filters": {"log_user": "", "date_from": "", "date_to": "", "log_sort": "newest"}}
+        track_filters = {"track_q": "", "track_uploader": ""}
+        if active_tab == "accounts":
+            users = fetch_admin_users(connection)
+        elif active_tab == "sessions":
+            logs, logs_pagination = fetch_admin_logs(connection, request)
+        elif active_tab == "tracks":
+            tracks, track_filters = fetch_admin_tracks(connection, request, lang)
+        elif active_tab == "reviews":
+            reviews = fetch_admin_reviews(connection, lang)
     context = {
         "request": request,
         "lang": lang,
         "t": t,
         "current_user": admin_user,
         "notice": notice,
+        "active_tab": active_tab,
+        "summary": summary,
         "users": users,
         "logs": logs,
+        "tracks": tracks,
         "logs_pagination": logs_pagination,
         "log_filters": logs_pagination["filters"],
+        "track_filters": track_filters,
         "reviews": reviews,
         "auth_open": False,
         "auth_mode": "login",
@@ -3104,11 +3518,16 @@ async def upload_complete(
     lang = get_lang(request)
     t = text_for(lang)
     user = current_user(request)
+    batch_id = normalize_batch_id(upload_batch_id)
     try:
         verify_csrf(request, csrf_token)
     except HTTPException as exc:
+        if is_xhr_request(request):
+            return JSONResponse({"ok": False, "detail": str(exc.detail)}, status_code=exc.status_code)
         return render_home(request, notice=str(exc.detail), status_code=exc.status_code)
     if user is None:
+        if is_xhr_request(request):
+            return JSONResponse({"ok": False, "detail": t["upload_login_required"]}, status_code=403)
         return render_home(
             request,
             notice=t["upload_login_required"],
@@ -3117,15 +3536,57 @@ async def upload_complete(
             auth_mode="login",
         )
     if not user["is_active"]:
+        if is_xhr_request(request):
+            return JSONResponse({"ok": False, "detail": t["user_disabled"]}, status_code=403)
         return render_home(request, notice=t["user_disabled"], status_code=403)
     if not rights_confirmed:
+        if is_xhr_request(request):
+            return JSONResponse({"ok": False, "detail": t["rights_needed"]}, status_code=400)
         return render_home(request, notice=t["rights_needed"], status_code=400)
+    if is_xhr_request(request):
+        existing_status = read_upload_status(batch_id)
+        urls = upload_status_urls(batch_id, lang)
+        if existing_status and existing_status.get("status") in {"queued", "processing", "completed", "failed"}:
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "batch_id": batch_id,
+                    "status": existing_status.get("status", "processing"),
+                    "status_url": urls["status_url"],
+                    "result_url": urls["result_url"],
+                }
+            )
+        write_upload_status(
+            batch_id,
+            {
+                "status": "queued",
+                "uploader": user["username"],
+                "lang": lang,
+                "notice": t["upload_progress_processing"],
+            },
+        )
+        return JSONResponse(
+            {
+                "ok": True,
+                "batch_id": batch_id,
+                "status": "queued",
+                "status_url": urls["status_url"],
+                "result_url": urls["result_url"],
+            },
+            background=BackgroundTask(run_upload_batch_job, batch_id, user["username"], lang),
+        )
 
     accepted: list[str] = []
     rejected: list[str] = []
-    batch_id = normalize_batch_id(upload_batch_id)
     try:
-        process_completed_batch(batch_id, user["username"], accepted, rejected, lang)
+        await asyncio.to_thread(
+            process_completed_batch,
+            batch_id,
+            user["username"],
+            accepted,
+            rejected,
+            lang,
+        )
     except IngestError as exc:
         cleanup_batch_dir(batch_id)
         return render_home(request, notice=describe_error(str(exc), lang), status_code=400)
@@ -3137,6 +3598,60 @@ async def upload_complete(
 
     notice = t["accepted_summary"].format(accepted=len(accepted), rejected=len(rejected))
     return render_home(request, notice=notice, accepted=accepted, rejected=rejected)
+
+
+@app.get("/upload/status/{batch_id}")
+async def upload_status(request: Request, batch_id: str) -> JSONResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    user = current_user(request)
+    if user is None:
+        return JSONResponse({"ok": False, "detail": t["upload_login_required"]}, status_code=403)
+    status = read_upload_status(batch_id)
+    if status is None:
+        return JSONResponse({"ok": False, "detail": t["nothing_uploaded"]}, status_code=404)
+    if status.get("uploader") not in {"", user["username"]} and not user["is_admin"]:
+        return JSONResponse({"ok": False, "detail": t["upload_login_required"]}, status_code=403)
+    urls = upload_status_urls(batch_id, lang)
+    return JSONResponse(
+        {
+            "ok": True,
+            "batch_id": normalize_batch_id(batch_id),
+            "status": status.get("status", "processing"),
+            "notice": status.get("notice", t["upload_progress_processing"]),
+            "accepted_count": len(status.get("accepted") or []),
+            "rejected_count": len(status.get("rejected") or []),
+            "status_url": urls["status_url"],
+            "result_url": urls["result_url"],
+        }
+    )
+
+
+@app.get("/upload/result/{batch_id}", response_class=HTMLResponse)
+async def upload_result(request: Request, batch_id: str) -> HTMLResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    user = current_user(request)
+    if user is None:
+        return render_home(
+            request,
+            notice=t["upload_login_required"],
+            status_code=403,
+            auth_open=True,
+            auth_mode="login",
+        )
+    status = read_upload_status(batch_id)
+    if status is None:
+        return render_home(request, notice=t["nothing_uploaded"], status_code=404)
+    if status.get("uploader") not in {"", user["username"]} and not user["is_admin"]:
+        return render_home(request, notice=t["upload_login_required"], status_code=403)
+    return render_home(
+        request,
+        notice=str(status.get("notice") or ""),
+        accepted=list(status.get("accepted") or []),
+        rejected=list(status.get("rejected") or []),
+        status_code=int(status.get("status_code") or 200),
+    )
 
 
 @app.get("/download/{track_id}")
@@ -3165,6 +3680,30 @@ async def download(request: Request, track_id: int) -> FileResponse:
         file_path,
         media_type="audio/flac",
         filename=download_filename_for_track(row),
+    )
+
+
+@app.get("/preview/{track_id}")
+async def preview_track(request: Request, track_id: int) -> FileResponse:
+    lang = get_lang(request)
+    user = current_user(request)
+    if user is None:
+        raise HTTPException(status_code=403, detail=text_for(lang)["login_needed_notice"])
+    if not user["is_active"]:
+        raise HTTPException(status_code=403, detail=text_for(lang)["user_disabled"])
+
+    with get_db() as connection:
+        row = connection.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail=text_for(lang)["track_not_found"])
+    blob_relative = row["blob_path"] or row["stored_path"]
+    file_path = LIBRARY_DIR / blob_relative
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=text_for(lang)["file_missing"])
+    return FileResponse(
+        file_path,
+        media_type="audio/flac",
+        headers={"Accept-Ranges": "bytes", "Cache-Control": "no-store"},
     )
 
 
@@ -3240,7 +3779,7 @@ async def spectrum_image(request: Request, track_id: int) -> FileResponse:
     if row is None:
         raise HTTPException(status_code=404, detail=text_for(lang)["track_not_found"])
     try:
-        image_path = ensure_spectrum_image(row)
+        image_path = await asyncio.to_thread(ensure_spectrum_image, row)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=text_for(lang)["file_missing"]) from None
     except subprocess.CalledProcessError as exc:
@@ -3257,6 +3796,75 @@ async def admin_page(request: Request) -> HTMLResponse:
     return render_admin(request)
 
 
+def admin_form_tab(form: Any, default: str) -> str:
+    return normalize_admin_tab(str(form.get("tab", default)))
+
+
+def selected_ids_from_form(form: Any, field_name: str) -> list[int]:
+    values = form.getlist(field_name) if hasattr(form, "getlist") else []
+    selected: list[int] = []
+    for raw_value in values:
+        text = str(raw_value).strip()
+        if text.isdigit():
+            selected.append(int(text))
+    return list(dict.fromkeys(selected))
+
+
+def delete_tracks_by_ids(connection: sqlite3.Connection, track_ids: list[int]) -> int:
+    deleted_count = 0
+    for track_id in track_ids:
+        track = connection.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
+        if track is None:
+            continue
+        old_blob_path = str(track["blob_path"] or "")
+        old_stored_path = str(track["stored_path"] or "")
+        old_cover_path = str(track["cover_path"] or "")
+
+        if table_exists(connection, "track_uploaders"):
+            connection.execute("DELETE FROM track_uploaders WHERE track_id = ?", (track_id,))
+        connection.execute("DELETE FROM tracks WHERE id = ?", (track_id,))
+
+        for spectrum_file in SPECTRUM_DIR.glob(f"{track_id}-*.png"):
+            spectrum_file.unlink(missing_ok=True)
+
+        if old_stored_path:
+            still_uses_alias = connection.execute(
+                "SELECT COUNT(*) AS total FROM tracks WHERE stored_path = ?",
+                (old_stored_path,),
+            ).fetchone()["total"]
+            if still_uses_alias == 0:
+                (LIBRARY_DIR / old_stored_path).unlink(missing_ok=True)
+        if old_blob_path:
+            still_uses_blob = connection.execute(
+                "SELECT COUNT(*) AS total FROM tracks WHERE blob_path = ?",
+                (old_blob_path,),
+            ).fetchone()["total"]
+            if still_uses_blob == 0:
+                (LIBRARY_DIR / old_blob_path).unlink(missing_ok=True)
+        if old_cover_path:
+            still_uses_cover = connection.execute(
+                "SELECT COUNT(*) AS total FROM tracks WHERE cover_path = ?",
+                (old_cover_path,),
+            ).fetchone()["total"]
+            if still_uses_cover == 0:
+                (COVERS_DIR / old_cover_path).unlink(missing_ok=True)
+        deleted_count += 1
+    return deleted_count
+
+
+def get_review_item_or_404(review_id: int) -> sqlite3.Row:
+    with get_db() as connection:
+        review_item = connection.execute("SELECT * FROM review_items WHERE id = ?", (review_id,)).fetchone()
+    if review_item is None:
+        raise HTTPException(status_code=404, detail="review item not found")
+    return review_item
+
+
+def cleanup_review_spectrum_cache(review_id: int) -> None:
+    for spectrum_file in SPECTRUM_DIR.glob(f"review-{review_id}-*.png"):
+        spectrum_file.unlink(missing_ok=True)
+
+
 def approve_review_item(review_item: sqlite3.Row, reviewer: str) -> str:
     candidate_path = REVIEW_DIR / str(review_item["candidate_path"] or "")
     if not candidate_path.exists():
@@ -3267,6 +3875,7 @@ def approve_review_item(review_item: sqlite3.Row, reviewer: str) -> str:
     uploader = str(review_item["uploader"])
     original_filename = str(review_item["original_filename"])
     decision_note = "approved_import"
+    duplicate_reason = str(review_item["reason"] or "approved_from_review")
 
     if str(review_item["suggested_action"]) == "merge_existing" and review_item["existing_track_id"]:
         with get_db() as connection:
@@ -3282,24 +3891,68 @@ def approve_review_item(review_item: sqlite3.Row, reviewer: str) -> str:
                 candidate_path,
                 meta,
                 file_hash,
-                str(review_item["reason"]),
+                duplicate_reason,
             )
         else:
-            decision_note = store_new_track_from_meta(
-                candidate_path,
-                original_filename,
-                uploader,
-                meta,
-                ingest_note="approved_from_review_missing_target",
-            )["status"]
+            with get_db() as connection:
+                duplicate_match = find_duplicate(connection, meta, file_hash)
+            if duplicate_match and duplicate_match.get("track") is not None:
+                decision_note = merge_existing_track(
+                    duplicate_match["track"],
+                    uploader,
+                    original_filename,
+                    candidate_path,
+                    meta,
+                    file_hash,
+                    duplicate_reason,
+                )
+            else:
+                decision_note = store_new_track_from_meta(
+                    candidate_path,
+                    original_filename,
+                    uploader,
+                    meta,
+                    ingest_note="approved_from_review_missing_target",
+                )["status"]
     else:
-        decision_note = store_new_track_from_meta(
-            candidate_path,
-            original_filename,
-            uploader,
-            meta,
-            ingest_note=f"approved_from_review:{review_item['reason']}",
-        )["status"]
+        with get_db() as connection:
+            duplicate_match = find_duplicate(connection, meta, file_hash)
+        if duplicate_match and duplicate_match.get("track") is not None:
+            decision_note = merge_existing_track(
+                duplicate_match["track"],
+                uploader,
+                original_filename,
+                candidate_path,
+                meta,
+                file_hash,
+                duplicate_reason,
+            )
+        else:
+            try:
+                decision_note = store_new_track_from_meta(
+                    candidate_path,
+                    original_filename,
+                    uploader,
+                    meta,
+                    ingest_note=f"approved_from_review:{review_item['reason']}",
+                )["status"]
+            except sqlite3.IntegrityError:
+                with get_db() as connection:
+                    exact_track = connection.execute(
+                        "SELECT * FROM tracks WHERE file_hash = ?",
+                        (file_hash,),
+                    ).fetchone()
+                if exact_track is None:
+                    raise
+                decision_note = merge_existing_track(
+                    exact_track,
+                    uploader,
+                    original_filename,
+                    candidate_path,
+                    meta,
+                    file_hash,
+                    duplicate_reason,
+                )
 
     with get_db() as connection:
         connection.execute(
@@ -3311,6 +3964,7 @@ def approve_review_item(review_item: sqlite3.Row, reviewer: str) -> str:
             (now_utc().isoformat(), reviewer, decision_note, review_item["id"]),
         )
     candidate_path.unlink(missing_ok=True)
+    cleanup_review_spectrum_cache(int(review_item["id"]))
     return decision_note
 
 
@@ -3320,6 +3974,7 @@ async def admin_toggle_user(request: Request, user_id: int) -> RedirectResponse:
     verify_csrf(request, str(form.get("csrf_token", "")))
     admin_user = require_admin(request)
     lang = get_lang(request)
+    tab = admin_form_tab(form, "accounts")
     with get_db() as connection:
         target_user = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         if target_user is None:
@@ -3330,9 +3985,146 @@ async def admin_toggle_user(request: Request, user_id: int) -> RedirectResponse:
             "UPDATE users SET is_active = ? WHERE id = ?",
             (0 if target_user["is_active"] else 1, user_id),
         )
-    response = RedirectResponse(f"/admin?lang={lang}", status_code=303)
+    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
     set_lang_cookie(request, response, lang)
     return response
+
+
+@app.post("/admin/users/bulk")
+async def admin_bulk_users(request: Request) -> RedirectResponse:
+    form = await request.form()
+    verify_csrf(request, str(form.get("csrf_token", "")))
+    admin_user = require_admin(request)
+    lang = get_lang(request)
+    tab = admin_form_tab(form, "accounts")
+    action = str(form.get("action", "")).strip()
+    user_ids = selected_ids_from_form(form, "user_ids")
+    if action not in {"enable", "disable"} or not user_ids:
+        response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
+        set_lang_cookie(request, response, lang)
+        return response
+    with get_db() as connection:
+        for user_id in user_ids:
+            target_user = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            if target_user is None:
+                continue
+            if action == "disable" and target_user["username"] == admin_user["username"]:
+                continue
+            connection.execute(
+                "UPDATE users SET is_active = ? WHERE id = ?",
+                (1 if action == "enable" else 0, user_id),
+            )
+    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
+    set_lang_cookie(request, response, lang)
+    return response
+
+
+@app.post("/admin/logs/bulk-delete")
+async def admin_bulk_logs(request: Request) -> RedirectResponse:
+    form = await request.form()
+    verify_csrf(request, str(form.get("csrf_token", "")))
+    require_admin(request)
+    lang = get_lang(request)
+    tab = admin_form_tab(form, "sessions")
+    log_ids = selected_ids_from_form(form, "log_ids")
+    if log_ids:
+        with get_db() as connection:
+            placeholders = ",".join("?" for _ in log_ids)
+            connection.execute(f"DELETE FROM login_logs WHERE id IN ({placeholders})", log_ids)
+    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
+    set_lang_cookie(request, response, lang)
+    return response
+
+
+@app.post("/admin/tracks/bulk-delete")
+async def admin_bulk_delete_tracks(request: Request) -> RedirectResponse:
+    form = await request.form()
+    verify_csrf(request, str(form.get("csrf_token", "")))
+    require_admin(request)
+    lang = get_lang(request)
+    tab = admin_form_tab(form, "tracks")
+    track_ids = selected_ids_from_form(form, "track_ids")
+    if track_ids:
+        with get_db() as connection:
+            delete_tracks_by_ids(connection, track_ids)
+    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
+    set_lang_cookie(request, response, lang)
+    return response
+
+
+@app.post("/admin/bulk-delete")
+async def admin_bulk_delete(request: Request) -> JSONResponse:
+    verify_csrf(request, (await request.form()).get("csrf_token", ""))
+    require_admin(request)
+    lang = get_lang(request)
+    t = text_for(lang)
+
+    form = await request.form()
+    track_ids_str = form.get("track_ids", "")
+    if not track_ids_str:
+        return JSONResponse({"ok": False, "detail": "no track IDs provided"})
+
+    try:
+        track_ids = [int(id_str.strip()) for id_str in track_ids_str.split(",") if id_str.strip().isdigit()]
+    except ValueError:
+        return JSONResponse({"ok": False, "detail": "invalid track IDs"})
+
+    if not track_ids:
+        return JSONResponse({"ok": False, "detail": "no valid track IDs"})
+
+    with get_db() as connection:
+        deleted_count = delete_tracks_by_ids(connection, track_ids)
+
+    return JSONResponse({
+        "ok": True,
+        "detail": t["bulk_delete_success"] if deleted_count > 0 else "no tracks deleted",
+        "deleted_count": deleted_count
+    })
+
+
+@app.get("/admin/reviews/{review_id}/preview")
+async def admin_review_preview(request: Request, review_id: int) -> FileResponse:
+    require_admin(request)
+    review_item = get_review_item_or_404(review_id)
+    candidate_path = REVIEW_DIR / str(review_item["candidate_path"] or "")
+    if not candidate_path.exists():
+        raise HTTPException(status_code=404, detail="review candidate missing")
+    return FileResponse(
+        candidate_path,
+        media_type="audio/flac",
+        headers={"Accept-Ranges": "bytes", "Cache-Control": "no-store"},
+    )
+
+
+@app.get("/admin/reviews/{review_id}/download")
+async def admin_review_download(request: Request, review_id: int) -> FileResponse:
+    require_admin(request)
+    review_item = get_review_item_or_404(review_id)
+    candidate_path = REVIEW_DIR / str(review_item["candidate_path"] or "")
+    if not candidate_path.exists():
+        raise HTTPException(status_code=404, detail="review candidate missing")
+    return FileResponse(
+        candidate_path,
+        media_type="audio/flac",
+        filename=safe_segment(str(review_item["original_filename"] or f"review-{review_id}")) or f"review-{review_id}.flac",
+    )
+
+
+@app.get("/admin/reviews/{review_id}/spectrum.png")
+async def admin_review_spectrum(request: Request, review_id: int) -> FileResponse:
+    require_admin(request)
+    review_item = get_review_item_or_404(review_id)
+    try:
+        image_path = await asyncio.to_thread(ensure_review_spectrum_image, review_item)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="review candidate missing") from None
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(status_code=500, detail=f"spectrum render failed: {exc}") from exc
+    return FileResponse(
+        image_path,
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/admin/reviews/{review_id}/approve")
@@ -3341,6 +4133,7 @@ async def admin_approve_review(request: Request, review_id: int) -> RedirectResp
     verify_csrf(request, str(form.get("csrf_token", "")))
     admin_user = require_admin(request)
     lang = get_lang(request)
+    tab = admin_form_tab(form, "reviews")
     with get_db() as connection:
         review_item = connection.execute(
             "SELECT * FROM review_items WHERE id = ?",
@@ -3351,7 +4144,7 @@ async def admin_approve_review(request: Request, review_id: int) -> RedirectResp
     if review_item["status"] != "pending":
         raise HTTPException(status_code=400, detail="review item already handled")
     approve_review_item(review_item, admin_user["username"])
-    response = RedirectResponse(f"/admin?lang={lang}", status_code=303)
+    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
     set_lang_cookie(request, response, lang)
     return response
 
@@ -3362,6 +4155,7 @@ async def admin_reject_review(request: Request, review_id: int) -> RedirectRespo
     verify_csrf(request, str(form.get("csrf_token", "")))
     admin_user = require_admin(request)
     lang = get_lang(request)
+    tab = admin_form_tab(form, "reviews")
     with get_db() as connection:
         review_item = connection.execute(
             "SELECT * FROM review_items WHERE id = ?",
@@ -3381,7 +4175,49 @@ async def admin_reject_review(request: Request, review_id: int) -> RedirectRespo
         )
     candidate_path = REVIEW_DIR / str(review_item["candidate_path"] or "")
     candidate_path.unlink(missing_ok=True)
-    response = RedirectResponse(f"/admin?lang={lang}", status_code=303)
+    cleanup_review_spectrum_cache(review_id)
+    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
+    set_lang_cookie(request, response, lang)
+    return response
+
+
+@app.post("/admin/reviews/bulk")
+async def admin_bulk_reviews(request: Request) -> RedirectResponse:
+    form = await request.form()
+    verify_csrf(request, str(form.get("csrf_token", "")))
+    admin_user = require_admin(request)
+    lang = get_lang(request)
+    tab = admin_form_tab(form, "reviews")
+    action = str(form.get("action", "")).strip()
+    review_ids = selected_ids_from_form(form, "review_ids")
+    if action in {"approve", "reject"} and review_ids:
+        with get_db() as connection:
+            rows = connection.execute(
+                f"SELECT * FROM review_items WHERE id IN ({','.join('?' for _ in review_ids)})",
+                review_ids,
+            ).fetchall()
+        for review_item in rows:
+            if review_item["status"] != "pending":
+                continue
+            if action == "approve":
+                try:
+                    approve_review_item(review_item, admin_user["username"])
+                except HTTPException:
+                    continue
+            else:
+                with get_db() as connection:
+                    connection.execute(
+                        """
+                        UPDATE review_items
+                        SET status = 'rejected', reviewed_at = ?, reviewer = ?, decision_note = 'rejected'
+                        WHERE id = ?
+                        """,
+                        (now_utc().isoformat(), admin_user["username"], int(review_item["id"])),
+                    )
+                candidate_path = REVIEW_DIR / str(review_item["candidate_path"] or "")
+                candidate_path.unlink(missing_ok=True)
+                cleanup_review_spectrum_cache(int(review_item["id"]))
+    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
     set_lang_cookie(request, response, lang)
     return response
 

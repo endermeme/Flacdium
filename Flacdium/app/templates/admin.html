@@ -1,191 +1,421 @@
 {% extends "base.html" %}
 {% block content %}
+  <div class="spectrum-overlay" data-spectrum-overlay>
+    <div class="spectrum-card">
+      <div class="auth-head">
+        <strong data-spectrum-heading>{{ t["spectrum_title"] }}</strong>
+        <button type="button" class="mini-link" data-close-spectrum>{{ t["close"] }}</button>
+      </div>
+      <div class="spectrum-meta" data-spectrum-meta></div>
+      <div class="spectrum-status" data-spectrum-status></div>
+      <div class="spectrum-frame">
+        <img src="" alt="{{ t['spectrum_title'] }}" data-spectrum-image>
+      </div>
+    </div>
+  </div>
+
+  <div class="player-overlay" data-player-overlay>
+    <div class="player-card">
+      <div class="auth-head">
+        <strong data-player-heading>{{ t["preview_title"] }}</strong>
+        <button type="button" class="mini-link" data-close-player>{{ t["close"] }}</button>
+      </div>
+      <div class="player-meta" data-player-meta></div>
+      <audio controls preload="none" data-player-audio></audio>
+    </div>
+  </div>
+
   <section class="dashboard admin-dashboard">
     <div class="stats-strip">
       <span><strong>{{ t["admin_title"] }}</strong></span>
-      <span><strong>{{ users|length }}</strong> {{ t["admin_users"] }}</span>
-      <span><strong>{{ logs_pagination["total_items"] }}</strong> {{ t["admin_logs"] }}</span>
+      <span><strong>{{ summary["users"] }}</strong> {{ t["admin_users"] }}</span>
+      <span><strong>{{ summary["logs"] }}</strong> {{ t["admin_logs"] }}</span>
+      <span><strong>{{ summary["tracks"] }}</strong> {{ t["admin_tracks"] }}</span>
+      <span><strong>{{ summary["reviews"] }}</strong> {{ t["admin_reviews"] }}</span>
       <span><strong>{{ current_user["username"] }}</strong></span>
     </div>
+
+    <div class="admin-tabs">
+      <a href="/admin?lang={{ lang }}&tab=accounts" class="admin-tab {% if active_tab == 'accounts' %}is-active{% endif %}">{{ t["admin_tab_accounts"] }}</a>
+      <a href="/admin?lang={{ lang }}&tab=sessions" class="admin-tab {% if active_tab == 'sessions' %}is-active{% endif %}">{{ t["admin_tab_sessions"] }}</a>
+      <a href="/admin?lang={{ lang }}&tab=tracks" class="admin-tab {% if active_tab == 'tracks' %}is-active{% endif %}">{{ t["admin_tab_tracks"] }}</a>
+      <a href="/admin?lang={{ lang }}&tab=reviews" class="admin-tab {% if active_tab == 'reviews' %}is-active{% endif %}">{{ t["admin_tab_reviews"] }}</a>
+    </div>
+
     {% if notice %}
       <div class="notice-box">{{ notice }}</div>
     {% endif %}
 
-    <div class="admin-block">
-      <div class="panel-title">{{ t["admin_users"] }}</div>
-      <table class="library-table admin-table">
-        <thead>
-          <tr>
-            <th>{{ t["username"] }}</th>
-            <th>{{ t["admin_status"] }}</th>
-            <th>{{ t["admin_created"] }}</th>
-            <th>{{ t["admin_last_ip"] }}</th>
-            <th>{{ t["admin_last_login"] }}</th>
-            <th>logs</th>
-            <th>{{ t["admin_actions"] }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for user in users %}
-            <tr>
-              <td>
-                <strong>{{ user["username"] }}</strong>
-                {% if user["is_admin"] %}
-                  <span class="inline-badge">{{ t["admin_badge"] }}</span>
-                {% endif %}
-              </td>
-              <td>{{ t["admin_active"] if user["is_active"] else t["admin_disabled"] }}</td>
-              <td>{{ user["created_label"] }}</td>
-              <td>{{ user["last_ip"] or "-" }}</td>
-              <td>{{ user["last_login_label"] }}</td>
-              <td>{{ user["login_count"] }}</td>
-              <td>
-                {% if not user["is_admin"] %}
-                  <form method="post" action="/admin/users/{{ user['id'] }}/toggle">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit">{{ t["admin_toggle_disable"] if user["is_active"] else t["admin_toggle_enable"] }}</button>
-                  </form>
-                {% endif %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="admin-block">
-      <div class="panel-title">{{ t["admin_reviews"] }}</div>
-      <table class="library-table admin-table">
-        <thead>
-          <tr>
-            <th>{{ t["admin_log_user"] }}</th>
-            <th>{{ t["admin_review_file"] }}</th>
-            <th>{{ t["admin_review_reason"] }}</th>
-            <th>{{ t["admin_review_meta"] }}</th>
-            <th>{{ t["admin_review_when"] }}</th>
-            <th>{{ t["admin_review_actions"] }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in reviews %}
-            <tr>
-              <td>{{ item["uploader"] }}</td>
-              <td>{{ item["original_filename"] }}</td>
-              <td>{{ item["reason_label"] }}</td>
-              <td>
-                {% if item["artist"] or item["album"] or item["title"] %}
-                  {{ item["artist"] or "?" }} / {{ item["album"] or "?" }} / {{ item["title"] or "?" }}
-                {% else %}
-                  -
-                {% endif %}
-              </td>
-              <td>{{ item["created_label"] }}</td>
-              <td>
-                {% if item["candidate_exists"] %}
-                  <form method="post" action="/admin/reviews/{{ item['id'] }}/approve">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit">{{ t["admin_review_approve"] }}</button>
-                  </form>
-                  <form method="post" action="/admin/reviews/{{ item['id'] }}/reject">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit">{{ t["admin_review_reject"] }}</button>
-                  </form>
-                {% else %}
-                  missing file
-                {% endif %}
-              </td>
-            </tr>
-          {% else %}
-            <tr>
-              <td colspan="6" class="empty-row">{{ t["admin_review_empty"] }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="admin-block">
-      <div class="panel-title">{{ t["admin_logs"] }}</div>
-      <form class="filter-panel admin-filter-panel" method="get" action="/admin">
-        <input type="hidden" name="lang" value="{{ lang }}">
-        <div class="filter-grid admin-filter-grid">
-          <label>
-            <span>{{ t["admin_filter_user"] }}</span>
-            <input type="text" name="log_user" value="{{ log_filters['log_user'] }}" placeholder="{{ t['admin_filter_user_placeholder'] }}">
+    {% if active_tab == "accounts" %}
+      <form class="admin-block" method="post" action="/admin/users/bulk" data-bulk-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="tab" value="accounts">
+        <div class="table-toolbar">
+          <label class="select-toggle">
+            <input type="checkbox" data-bulk-toggle>
+            <span>{{ t["admin_select_all"] }}</span>
           </label>
-          <label>
-            <span>{{ t["admin_filter_from"] }}</span>
-            <input type="date" name="date_from" value="{{ log_filters['date_from'] }}">
-          </label>
-          <label>
-            <span>{{ t["admin_filter_to"] }}</span>
-            <input type="date" name="date_to" value="{{ log_filters['date_to'] }}">
-          </label>
-          <label>
-            <span>{{ t["admin_filter_sort"] }}</span>
-            <select name="log_sort">
-              <option value="newest" {% if log_filters["log_sort"] == "newest" %}selected{% endif %}>{{ t["admin_sort_newest"] }}</option>
-              <option value="oldest" {% if log_filters["log_sort"] == "oldest" %}selected{% endif %}>{{ t["admin_sort_oldest"] }}</option>
-              <option value="user_az" {% if log_filters["log_sort"] == "user_az" %}selected{% endif %}>{{ t["admin_sort_user_az"] }}</option>
-              <option value="user_za" {% if log_filters["log_sort"] == "user_za" %}selected{% endif %}>{{ t["admin_sort_user_za"] }}</option>
-            </select>
-          </label>
+          <div class="selection-tools">
+            <button type="submit" class="mini-button" name="action" value="enable" data-bulk-action-button>{{ t["admin_bulk_enable"] }}</button>
+            <button type="submit" class="mini-button" name="action" value="disable" data-bulk-action-button>{{ t["admin_bulk_disable"] }}</button>
+          </div>
         </div>
-        <div class="filter-actions">
-          <button type="submit">{{ t["scan"] }}</button>
-          <a href="/admin?lang={{ lang }}">{{ t["clear"] }}</a>
+        <div class="table-scroll admin-table-scroll">
+          <table class="library-table admin-table">
+            <thead>
+              <tr>
+                <th class="select-col">{{ t["admin_select"] }}</th>
+                <th>{{ t["username"] }}</th>
+                <th>{{ t["admin_status"] }}</th>
+                <th>{{ t["admin_created"] }}</th>
+                <th>{{ t["admin_last_ip"] }}</th>
+                <th>{{ t["admin_last_login"] }}</th>
+                <th>logs</th>
+                <th>{{ t["admin_actions"] }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for user in users %}
+                <tr>
+                  <td class="select-col">
+                    {% if not (user["is_admin"] and user["username"] == current_user["username"]) %}
+                      <input type="checkbox" name="user_ids" value="{{ user['id'] }}" data-bulk-item>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <strong>{{ user["username"] }}</strong>
+                    {% if user["is_admin"] %}
+                      <span class="inline-badge">{{ t["admin_badge"] }}</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ t["admin_active"] if user["is_active"] else t["admin_disabled"] }}</td>
+                  <td>{{ user["created_label"] }}</td>
+                  <td>{{ user["last_ip"] or "-" }}</td>
+                  <td>{{ user["last_login_label"] }}</td>
+                  <td>{{ user["login_count"] }}</td>
+                  <td>
+                    {% if not (user["is_admin"] and user["username"] == current_user["username"]) %}
+                      <form method="post" action="/admin/users/{{ user['id'] }}/toggle" class="inline-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="tab" value="accounts">
+                        <button type="submit" class="mini-button">{{ t["admin_toggle_disable"] if user["is_active"] else t["admin_toggle_enable"] }}</button>
+                      </form>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% else %}
+                <tr>
+                  <td colspan="8" class="empty-row">no accounts</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
       </form>
-      <table class="library-table admin-table">
-        <thead>
-          <tr>
-            <th>{{ t["admin_log_user"] }}</th>
-            <th>{{ t["admin_log_ip"] }}</th>
-            <th>{{ t["admin_log_forwarded"] }}</th>
-            <th>{{ t["admin_log_result"] }}</th>
-            <th>{{ t["admin_log_cell"] }}</th>
-            <th>{{ t["admin_log_time"] }}</th>
-            <th>{{ t["admin_log_agent"] }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for log in logs %}
-            <tr>
-              <td>{{ log["current_username"] or log["attempted_username"] }}</td>
-              <td>{{ log["ip_address"] }}</td>
-              <td>{{ log["forwarded_for"] or "-" }}</td>
-              <td>
-                {{ t["admin_log_success"] if log["success"] else t["admin_log_failed"] }}
-                |
-                {{ t["admin_log_ip_changed"] if log["ip_changed"] else t["admin_log_same_ip"] }}
-              </td>
-              <td>{{ log["cell_lookup_status"] }}{% if log["cell_lookup_address"] %} | {{ log["cell_lookup_address"] }}{% endif %}</td>
-              <td>{{ log["created_label"] }}</td>
-              <td class="agent-cell">{{ log["user_agent"] or "-" }}</td>
-            </tr>
-          {% else %}
-            <tr>
-              <td colspan="7" class="empty-row">no logs</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    {% endif %}
 
-      <div class="table-footer">
-        <div class="pager-row pager-row-strong">
-          {% if logs_pagination["prev_url"] %}
-            <a href="{{ logs_pagination['prev_url'] }}" class="pager-button">{{ t["page_prev"] }}</a>
-          {% else %}
-            <span class="pager-button is-disabled">{{ t["page_prev"] }}</span>
-          {% endif %}
-          <span class="pager-state">{{ t["page_label"] }} {{ logs_pagination["page"] }}/{{ logs_pagination["total_pages"] }}</span>
-          {% if logs_pagination["next_url"] %}
-            <a href="{{ logs_pagination['next_url'] }}" class="pager-button">{{ t["page_next"] }}</a>
-          {% else %}
-            <span class="pager-button is-disabled">{{ t["page_next"] }}</span>
-          {% endif %}
+    {% if active_tab == "sessions" %}
+      <div class="admin-block">
+        <form class="filter-panel admin-filter-panel" method="get" action="/admin">
+          <input type="hidden" name="lang" value="{{ lang }}">
+          <input type="hidden" name="tab" value="sessions">
+          <div class="filter-grid admin-filter-grid">
+            <label>
+              <span>{{ t["admin_filter_user"] }}</span>
+              <input type="text" name="log_user" value="{{ log_filters['log_user'] }}" placeholder="{{ t['admin_filter_user_placeholder'] }}">
+            </label>
+            <label>
+              <span>{{ t["admin_filter_from"] }}</span>
+              <input type="date" name="date_from" value="{{ log_filters['date_from'] }}">
+            </label>
+            <label>
+              <span>{{ t["admin_filter_to"] }}</span>
+              <input type="date" name="date_to" value="{{ log_filters['date_to'] }}">
+            </label>
+            <label>
+              <span>{{ t["admin_filter_sort"] }}</span>
+              <select name="log_sort">
+                <option value="newest" {% if log_filters["log_sort"] == "newest" %}selected{% endif %}>{{ t["admin_sort_newest"] }}</option>
+                <option value="oldest" {% if log_filters["log_sort"] == "oldest" %}selected{% endif %}>{{ t["admin_sort_oldest"] }}</option>
+                <option value="user_az" {% if log_filters["log_sort"] == "user_az" %}selected{% endif %}>{{ t["admin_sort_user_az"] }}</option>
+                <option value="user_za" {% if log_filters["log_sort"] == "user_za" %}selected{% endif %}>{{ t["admin_sort_user_za"] }}</option>
+              </select>
+            </label>
+          </div>
+          <div class="filter-actions">
+            <button type="submit">{{ t["scan"] }}</button>
+            <a href="/admin?lang={{ lang }}&tab=sessions">{{ t["clear"] }}</a>
+          </div>
+        </form>
+
+        <form method="post" action="/admin/logs/bulk-delete" data-bulk-form>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="tab" value="sessions">
+          <div class="table-toolbar">
+            <label class="select-toggle">
+              <input type="checkbox" data-bulk-toggle>
+              <span>{{ t["admin_select_all"] }}</span>
+            </label>
+            <div class="selection-tools">
+              <button type="submit" class="mini-button danger-button" data-bulk-action-button>{{ t["admin_bulk_delete_logs"] }}</button>
+            </div>
+          </div>
+          <div class="table-scroll admin-table-scroll">
+            <table class="library-table admin-table">
+              <thead>
+                <tr>
+                  <th class="select-col">{{ t["admin_select"] }}</th>
+                  <th>{{ t["admin_log_user"] }}</th>
+                  <th>{{ t["admin_log_ip"] }}</th>
+                  <th>{{ t["admin_log_forwarded"] }}</th>
+                  <th>{{ t["admin_log_result"] }}</th>
+                  <th>{{ t["admin_log_cell"] }}</th>
+                  <th>{{ t["admin_log_time"] }}</th>
+                  <th>{{ t["admin_log_agent"] }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for log in logs %}
+                  <tr>
+                    <td class="select-col"><input type="checkbox" name="log_ids" value="{{ log['id'] }}" data-bulk-item></td>
+                    <td>{{ log["current_username"] or log["attempted_username"] }}</td>
+                    <td>{{ log["ip_address"] }}</td>
+                    <td>{{ log["forwarded_for"] or "-" }}</td>
+                    <td>
+                      {{ t["admin_log_success"] if log["success"] else t["admin_log_failed"] }}
+                      |
+                      {{ t["admin_log_ip_changed"] if log["ip_changed"] else t["admin_log_same_ip"] }}
+                    </td>
+                    <td>{{ log["cell_lookup_status"] }}{% if log["cell_lookup_address"] %} | {{ log["cell_lookup_address"] }}{% endif %}</td>
+                    <td>{{ log["created_label"] }}</td>
+                    <td class="agent-cell">{{ log["user_agent"] or "-" }}</td>
+                  </tr>
+                {% else %}
+                  <tr>
+                    <td colspan="8" class="empty-row">{{ t["admin_logs_empty"] }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </form>
+
+        <div class="table-footer">
+          <div class="pager-row pager-row-strong">
+            {% if logs_pagination["prev_url"] %}
+              <a href="{{ logs_pagination['prev_url'] }}" class="pager-button">{{ t["page_prev"] }}</a>
+            {% else %}
+              <span class="pager-button is-disabled">{{ t["page_prev"] }}</span>
+            {% endif %}
+            <span class="pager-state">{{ t["page_label"] }} {{ logs_pagination["page"] }}/{{ logs_pagination["total_pages"] }}</span>
+            {% if logs_pagination["next_url"] %}
+              <a href="{{ logs_pagination['next_url'] }}" class="pager-button">{{ t["page_next"] }}</a>
+            {% else %}
+              <span class="pager-button is-disabled">{{ t["page_next"] }}</span>
+            {% endif %}
+          </div>
         </div>
       </div>
-    </div>
+    {% endif %}
+
+    {% if active_tab == "tracks" %}
+      <div class="admin-block">
+        <form class="filter-panel admin-filter-panel" method="get" action="/admin">
+          <input type="hidden" name="lang" value="{{ lang }}">
+          <input type="hidden" name="tab" value="tracks">
+          <div class="filter-grid admin-track-filter-grid">
+            <label>
+              <span>{{ t["find"] }}</span>
+              <input type="text" name="track_q" value="{{ track_filters['track_q'] }}" placeholder="{{ t['find_placeholder'] }}">
+            </label>
+            <label>
+              <span>{{ t["uploader"] }}</span>
+              <input type="text" name="track_uploader" value="{{ track_filters['track_uploader'] }}" placeholder="{{ t['exact_uploader'] }}">
+            </label>
+          </div>
+          <div class="filter-actions">
+            <button type="submit">{{ t["scan"] }}</button>
+            <a href="/admin?lang={{ lang }}&tab=tracks">{{ t["clear"] }}</a>
+          </div>
+        </form>
+
+        <form method="post" action="/admin/tracks/bulk-delete" data-bulk-form>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="tab" value="tracks">
+          <div class="table-toolbar">
+            <label class="select-toggle">
+              <input type="checkbox" data-bulk-toggle>
+              <span>{{ t["admin_select_all"] }}</span>
+            </label>
+            <div class="selection-tools">
+              <button type="submit" class="mini-button danger-button" data-bulk-action-button>{{ t["bulk_delete"] }}</button>
+            </div>
+          </div>
+          <div class="table-scroll admin-table-scroll">
+            <table class="library-table admin-table">
+              <thead>
+                <tr>
+                  <th class="select-col">{{ t["admin_select"] }}</th>
+                  <th>{{ t["cover"] }}</th>
+                  <th>{{ t["admin_music_file"] }}</th>
+                  <th>{{ t["admin_music_meta"] }}</th>
+                  <th>{{ t["admin_music_uploader"] }}</th>
+                  <th>{{ t["admin_music_added"] }}</th>
+                  <th>{{ t["admin_music_actions"] }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for track in tracks %}
+                  <tr>
+                    <td class="select-col"><input type="checkbox" name="track_ids" value="{{ track['id'] }}" data-bulk-item></td>
+                    <td class="cover-cell"><img src="{{ track['cover_url'] }}" alt="{{ track['album'] }}"></td>
+                    <td>
+                      <strong class="track-main">{{ "%02d"|format(track["track_number"]) }}. {{ track["title"] }}</strong>
+                      <span class="subline">{{ track["original_filename"] }}</span>
+                    </td>
+                    <td>{{ track["artist"] }} / {{ track["album"] }} / {{ track["specs_label"] }} / {{ track["size_label"] }}</td>
+                    <td class="uploader-credit-cell" title="{{ track['uploader_full'] }}">{{ track["uploader_display"] }}</td>
+                    <td>{{ track["uploaded_label"] }}</td>
+                    <td>
+                      <div class="track-actions">
+                        <a href="/download/{{ track['id'] }}" class="download-link">{{ t["download_label"] }}</a>
+                        <button
+                          type="button"
+                          class="download-link preview-button"
+                          data-open-player
+                          data-player-src="/preview/{{ track['id'] }}"
+                          data-player-heading="{{ track['artist'] }} / {{ track['album'] }} / {{ track['title'] }}"
+                          data-player-meta="{{ track['specs_label'] }} | {{ track['size_label'] }} | {{ track['duration_label'] }}"
+                        >{{ t["preview_label"] }}</button>
+                        <button
+                          type="button"
+                          class="download-link spectrum-button"
+                          data-open-spectrum
+                          data-spectrum-src="/spectrum/{{ track['id'] }}.png"
+                          data-spectrum-heading="{{ track['artist'] }} / {{ track['album'] }} / {{ track['title'] }}"
+                          data-spectrum-meta="{{ track['specs_label'] }} | {{ track['size_label'] }} | {{ track['duration_label'] }}"
+                          data-spectrum-loading="{{ t['spectrum_loading'] }}"
+                          data-spectrum-error="{{ t['spectrum_error'] }}"
+                        >{{ t["spectrum"] }}</button>
+                      </div>
+                    </td>
+                  </tr>
+                {% else %}
+                  <tr>
+                    <td colspan="7" class="empty-row">{{ t["admin_tracks_empty"] }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </form>
+      </div>
+    {% endif %}
+
+    {% if active_tab == "reviews" %}
+      <form class="admin-block" method="post" action="/admin/reviews/bulk" data-bulk-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="tab" value="reviews">
+        <div class="table-toolbar">
+          <label class="select-toggle">
+            <input type="checkbox" data-bulk-toggle>
+            <span>{{ t["admin_select_all"] }}</span>
+          </label>
+          <div class="selection-tools">
+            <button type="submit" class="mini-button" name="action" value="approve" data-bulk-action-button>{{ t["admin_bulk_approve"] }}</button>
+            <button type="submit" class="mini-button danger-button" name="action" value="reject" data-bulk-action-button>{{ t["admin_bulk_reject"] }}</button>
+          </div>
+        </div>
+        <div class="table-scroll admin-table-scroll">
+          <table class="library-table admin-table">
+            <thead>
+              <tr>
+                <th class="select-col">{{ t["admin_select"] }}</th>
+                <th>{{ t["admin_log_user"] }}</th>
+                <th>{{ t["admin_review_file"] }}</th>
+                <th>{{ t["admin_review_reason"] }}</th>
+                <th>{{ t["admin_review_meta"] }}</th>
+                <th>{{ t["size"] }}</th>
+                <th>{{ t["admin_review_when"] }}</th>
+                <th>{{ t["admin_music_actions"] }}</th>
+                <th>{{ t["admin_review_actions"] }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in reviews %}
+                <tr>
+                  <td class="select-col">
+                    {% if item["candidate_exists"] %}
+                      <input type="checkbox" name="review_ids" value="{{ item['id'] }}" data-bulk-item>
+                    {% endif %}
+                  </td>
+                  <td>{{ item["uploader"] }}</td>
+                  <td>{{ item["original_filename"] }}</td>
+                  <td>{{ item["reason_label"] }}</td>
+                  <td>
+                    {% if item["artist"] or item["album"] or item["title"] %}
+                      {{ item["artist"] or "?" }} / {{ item["album"] or "?" }} / {{ item["title"] or "?" }}
+                    {% else %}
+                      -
+                    {% endif %}
+                  </td>
+                  <td>{{ item["size_label"] }}</td>
+                  <td>{{ item["created_label"] }}</td>
+                  <td>
+                    {% if item["candidate_exists"] %}
+                      <div class="track-actions">
+                        <a href="/admin/reviews/{{ item['id'] }}/download" class="download-link">{{ t["download_label"] }}</a>
+                        <button
+                          type="button"
+                          class="download-link preview-button"
+                          data-open-player
+                          data-player-src="/admin/reviews/{{ item['id'] }}/preview"
+                          data-player-heading="{{ item['artist'] or '?' }} / {{ item['album'] or '?' }} / {{ item['title'] or item['original_filename'] }}"
+                          data-player-meta="{{ item['original_filename'] }} | {{ item['size_label'] }}"
+                        >{{ t["preview_label"] }}</button>
+                        <button
+                          type="button"
+                          class="download-link spectrum-button"
+                          data-open-spectrum
+                          data-spectrum-src="/admin/reviews/{{ item['id'] }}/spectrum.png"
+                          data-spectrum-heading="{{ item['artist'] or '?' }} / {{ item['album'] or '?' }} / {{ item['title'] or item['original_filename'] }}"
+                          data-spectrum-meta="{{ item['original_filename'] }} | {{ item['size_label'] }}"
+                          data-spectrum-loading="{{ t['spectrum_loading'] }}"
+                          data-spectrum-error="{{ t['spectrum_error'] }}"
+                        >{{ t["spectrum"] }}</button>
+                      </div>
+                    {% else %}
+                      missing file
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if item["candidate_exists"] %}
+                      <div class="admin-action-stack">
+                        <form method="post" action="/admin/reviews/{{ item['id'] }}/approve" class="inline-form">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                          <input type="hidden" name="tab" value="reviews">
+                          <button type="submit" class="mini-button">{{ t["admin_review_approve"] }}</button>
+                        </form>
+                        <form method="post" action="/admin/reviews/{{ item['id'] }}/reject" class="inline-form">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                          <input type="hidden" name="tab" value="reviews">
+                          <button type="submit" class="mini-button danger-button">{{ t["admin_review_reject"] }}</button>
+                        </form>
+                      </div>
+                    {% else %}
+                      missing file
+                    {% endif %}
+                  </td>
+                </tr>
+              {% else %}
+                <tr>
+                  <td colspan="9" class="empty-row">{{ t["admin_review_empty"] }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </form>
+    {% endif %}
   </section>
 {% endblock %}
