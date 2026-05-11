@@ -730,6 +730,8 @@ select:disabled {
   border-bottom: 1px solid #c8d0dc;
   background: #f4f7fb;
   justify-content: flex-start;
+  align-self: start;
+  min-height: 34px;
 }
 
 .selection-tools {
@@ -949,10 +951,13 @@ select:disabled {
 
 .table-wrap {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
   overflow: hidden;
 }
 
 .table-scroll {
+  min-height: 0;
   max-height: min(72vh, 980px);
   overflow: auto;
   overscroll-behavior: contain;
