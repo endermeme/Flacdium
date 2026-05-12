@@ -20,7 +20,7 @@ from urllib.request import urlopen
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -104,6 +104,8 @@ ADMIN_PASSWORD = os.getenv("FLACDIUM_ADMIN_PASSWORD", "")
 TRUST_PROXY = env_bool("FLACDIUM_TRUST_PROXY", False)
 MAX_REQUEST_BODY_BYTES = env_int("FLACDIUM_MAX_REQUEST_BODY_BYTES", 1024 * 1024 * 1024)
 MAX_UPLOAD_FILES = env_int("FLACDIUM_MAX_UPLOAD_FILES", 64)
+USER_MAX_UPLOAD_FILES = env_int("FLACDIUM_USER_MAX_UPLOAD_FILES", 50)
+USER_MAX_UPLOAD_ZIP_FILES = env_int("FLACDIUM_USER_MAX_UPLOAD_ZIP_FILES", 1)
 MAX_UPLOAD_FILE_BYTES = env_int("FLACDIUM_MAX_UPLOAD_FILE_BYTES", 800 * 1024 * 1024)
 MAX_UPLOAD_TOTAL_BYTES = env_int("FLACDIUM_MAX_UPLOAD_TOTAL_BYTES", 4 * 1024 * 1024 * 1024)
 MAX_ZIP_FILE_BYTES = env_int("FLACDIUM_MAX_ZIP_FILE_BYTES", 4 * 1024 * 1024 * 1024)
@@ -153,6 +155,7 @@ SIDEBAR_PAGE_SIZE = 10
 QUICK_LINKS_LIMIT = 8
 LOGIN_LOGS_PER_PAGE = 40
 MAX_BUNDLE_TRACKS = 100
+USER_MAX_BUNDLE_TRACKS = env_int("FLACDIUM_USER_MAX_BUNDLE_TRACKS", 50)
 SORTS = {
     "newest": "uploaded_at DESC",
     "oldest": "uploaded_at ASC",
@@ -162,6 +165,7 @@ SORTS = {
     "year": "year DESC, artist COLLATE NOCASE ASC, album COLLATE NOCASE ASC",
     "title": "title COLLATE NOCASE ASC, artist COLLATE NOCASE ASC",
 }
+ROBOTS_POLICY = "noindex, nofollow, noarchive, nosnippet, noimageindex"
 
 TEXT: dict[str, dict[str, str]] = {
     "vi": {
@@ -181,13 +185,14 @@ TEXT: dict[str, dict[str, str]] = {
         "stats_artists": "ca sĩ",
         "stats_albums": "album",
         "stats_uploaders": "người up",
+        "stats_music_size": "nhạc",
         "upload_lane": "khu upload",
         "uploader_label": "người up",
         "uploader_placeholder": "nickname hoặc handle",
         "bulk_flac": "upload nhiều flac",
         "zip_drop": "upload zip",
         "rights_confirmed": "tôi sure là nhạc ngon",
-        "upload_note": "chỉ nhận flac | bắt buộc artist, album, title, tracknumber, date, cover art nhúng",
+        "upload_note": "chỉ nhận flac | bắt buộc artist, album, title, tracknumber, date, cover art nhúng | ưu tiên indie/acoustic/alt-pop/emo/mellow rock, dự án DIY và vocal cảm xúc, chân thật | xin không nhận mix dài, edm, vinahouse, nhạc không lời :((( | user thường: tối đa 50 flac/lượt hoặc 1 zip/lượt | admin: bỏ giới hạn số lượt và số file",
         "upload_cta": "đẩy vào index",
         "upload_progress_title": "tiến trình upload",
         "upload_progress_uploading": "đang tải file lên...",
@@ -331,6 +336,10 @@ TEXT: dict[str, dict[str, str]] = {
         "duplicate_replaced": "bài đã có sẵn, đã thay bằng bản upload mới tốt hơn và gộp credit",
         "request_too_large": "request quá lớn",
         "too_many_upload_files": "quá nhiều file trong một lần upload",
+        "too_many_upload_zip_files": "mỗi lần chỉ được 1 file zip",
+        "choose_flac_or_zip": "mỗi lần chỉ được chọn một kiểu upload: nhiều flac hoặc một file zip",
+        "download_many_limit": "người dùng thường chỉ được tải tối đa 50 file flac một lần",
+        "download_zip_limit": "người dùng thường chỉ được gom tối đa 50 bài vào 1 file zip",
         "upload_file_too_large": "file flac vượt giới hạn dung lượng",
         "upload_total_too_large": "tổng dung lượng upload vượt giới hạn",
         "zip_file_too_large": "file zip vượt giới hạn dung lượng",
@@ -410,13 +419,14 @@ TEXT: dict[str, dict[str, str]] = {
         "stats_artists": "artists",
         "stats_albums": "albums",
         "stats_uploaders": "uploaders",
+        "stats_music_size": "music",
         "upload_lane": "upload lane",
         "uploader_label": "uploader",
         "uploader_placeholder": "nickname or handle",
         "bulk_flac": "bulk flac",
         "zip_drop": "zip upload",
         "rights_confirmed": "i know what tf i'm doing rn",
-        "upload_note": "flac only | requires artist, album, title, tracknumber, date, embedded cover art",
+        "upload_note": "flac only | requires artist, album, title, tracknumber, date, embedded cover art | looking for authentic, emotional, DIY-oriented music: indie bands, acoustic projects, alt-pop, emo, mellow rock, expressive vocal-focused tracks | please do not upload long mixes, edm, vinahouse, or instrumental-only releases :((( | regular users: max 50 flac files per upload or 1 zip per upload | admin: upload count and file count are not capped",
         "upload_cta": "push to index",
         "upload_progress_title": "upload progress",
         "upload_progress_uploading": "uploading files...",
@@ -557,6 +567,10 @@ TEXT: dict[str, dict[str, str]] = {
         "duplicate_replaced": "track already exists, the newer better upload replaced the stored file and uploader credit was merged",
         "request_too_large": "request body is too large",
         "too_many_upload_files": "too many files in one upload",
+        "too_many_upload_zip_files": "only 1 zip file is allowed per upload",
+        "choose_flac_or_zip": "choose only one upload mode per batch: many flac files or one zip file",
+        "download_many_limit": "regular users can download at most 50 flac files at once",
+        "download_zip_limit": "regular users can bundle at most 50 tracks into one zip",
         "upload_file_too_large": "flac file exceeds the size limit",
         "upload_total_too_large": "total upload size exceeds the limit",
         "zip_file_too_large": "zip file exceeds the size limit",
@@ -634,6 +648,14 @@ app = FastAPI(title="Flacdium")
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 app.mount("/covers", StaticFiles(directory=str(COVERS_DIR)), name="covers")
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
+
+
+@app.middleware("http")
+async def apply_site_guard(request: Request, call_next: Any) -> Any:
+    response = await call_next(request)
+    response.headers.setdefault("X-Robots-Tag", ROBOTS_POLICY)
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    return response
 
 
 def init_storage() -> None:
@@ -2313,6 +2335,27 @@ def is_xhr_request(request: Request) -> bool:
     return request.headers.get("x-requested-with", "").lower() == "xmlhttprequest"
 
 
+def is_admin_user(user: sqlite3.Row | dict[str, Any] | None) -> bool:
+    return bool(user and user["is_admin"])
+
+
+def user_upload_file_limit(user: sqlite3.Row | dict[str, Any] | None) -> int | None:
+    return None if is_admin_user(user) else USER_MAX_UPLOAD_FILES
+
+
+def user_upload_zip_limit(user: sqlite3.Row | dict[str, Any] | None) -> int | None:
+    return None if is_admin_user(user) else USER_MAX_UPLOAD_ZIP_FILES
+
+
+def user_bundle_track_limit(user: sqlite3.Row | dict[str, Any] | None) -> int | None:
+    return None if is_admin_user(user) else USER_MAX_BUNDLE_TRACKS
+
+
+def ensure_single_upload_mode(has_direct_files: bool, has_zip_file: bool) -> None:
+    if has_direct_files and has_zip_file:
+        raise IngestError("choose_flac_or_zip")
+
+
 def describe_error(code: str, lang: str) -> str:
     t = text_for(lang)
     if ":" not in code:
@@ -2448,9 +2491,11 @@ async def process_direct_uploads(
     accepted: list[str],
     rejected: list[str],
     lang: str,
+    *,
+    max_upload_files: int | None,
 ) -> None:
     named_uploads = [upload for upload in files if upload.filename]
-    if len(named_uploads) > MAX_UPLOAD_FILES:
+    if max_upload_files is not None and len(named_uploads) > max_upload_files:
         rejected.append(text_for(lang)["too_many_upload_files"])
         for upload in named_uploads:
             await upload.close()
@@ -2504,8 +2549,14 @@ async def process_zip_upload(
     accepted: list[str],
     rejected: list[str],
     lang: str,
+    *,
+    max_zip_uploads: int | None,
 ) -> None:
     if zip_upload is None or not zip_upload.filename:
+        return
+    if max_zip_uploads is not None and max_zip_uploads < 1:
+        rejected.append(text_for(lang)["too_many_upload_zip_files"])
+        await zip_upload.close()
         return
     if not zip_upload.filename.lower().endswith(".zip"):
         rejected.append(f"{zip_upload.filename}: {text_for(lang)['not_zip']}")
@@ -2539,6 +2590,8 @@ async def append_chunk_to_batch(
     upload_kind: str,
     chunk_offset: int,
     upload_size: int,
+    max_upload_files: int | None,
+    max_zip_uploads: int | None,
 ) -> dict[str, Any]:
     work_dir = batch_work_dir(batch_id)
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -2562,6 +2615,23 @@ async def append_chunk_to_batch(
         "kind": upload_kind,
         "size": upload_size,
     }
+    existing_meta_files = sorted(work_dir.glob("*.json"))
+    existing_kinds: list[str] = []
+    for existing_meta_path in existing_meta_files:
+        if existing_meta_path == meta_path:
+            continue
+        try:
+            existing_meta = json.loads(existing_meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        existing_kinds.append(str(existing_meta.get("kind") or ""))
+    if upload_kind and any(existing_kind and existing_kind != upload_kind for existing_kind in existing_kinds):
+        raise IngestError("choose_flac_or_zip")
+    if max_upload_files is not None and not meta_path.exists() and len(existing_kinds) >= max_upload_files:
+        raise IngestError("too_many_upload_files")
+    zip_uploads = existing_kinds.count("zip") + (1 if upload_kind == "zip" and not meta_path.exists() else 0)
+    if upload_kind == "zip" and max_zip_uploads is not None and zip_uploads > max_zip_uploads:
+        raise IngestError("too_many_upload_zip_files")
     meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
     total_written = 0
@@ -2589,6 +2659,9 @@ def process_completed_batch(
     accepted: list[str],
     rejected: list[str],
     lang: str,
+    *,
+    max_upload_files: int | None,
+    max_zip_uploads: int | None,
 ) -> None:
     work_dir = batch_work_dir(batch_id)
     if not work_dir.exists():
@@ -2596,10 +2669,24 @@ def process_completed_batch(
     meta_files = sorted(work_dir.glob("*.json"))
     if not meta_files:
         raise IngestError("nothing_uploaded")
-    if len(meta_files) > MAX_UPLOAD_FILES:
+    if max_upload_files is not None and len(meta_files) > max_upload_files:
         raise IngestError("too_many_upload_files")
+    zip_meta_files = 0
+    kinds_seen: set[str] = set()
 
     total_bytes = 0
+    for meta_path in meta_files:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        kind_value = str(meta.get("kind") or "")
+        if kind_value:
+            kinds_seen.add(kind_value)
+        if meta["kind"] == "zip":
+            zip_meta_files += 1
+    if len(kinds_seen) > 1:
+        raise IngestError("choose_flac_or_zip")
+    if max_zip_uploads is not None and zip_meta_files > max_zip_uploads:
+        raise IngestError("too_many_upload_zip_files")
+
     for meta_path in meta_files:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         part_path = batch_part_path(batch_id, str(meta["token"]))
@@ -2629,7 +2716,17 @@ def run_upload_batch_job(batch_id: str, uploader: str, lang: str) -> None:
         },
     )
     try:
-        process_completed_batch(batch_id, uploader, accepted, rejected, lang)
+        with get_db() as connection:
+            user = connection.execute("SELECT * FROM users WHERE username = ?", (uploader,)).fetchone()
+        process_completed_batch(
+            batch_id,
+            uploader,
+            accepted,
+            rejected,
+            lang,
+            max_upload_files=user_upload_file_limit(user),
+            max_zip_uploads=user_upload_zip_limit(user),
+        )
         if not accepted and not rejected:
             write_upload_status(
                 batch_id,
@@ -2710,6 +2807,15 @@ def human_size(num_bytes: int) -> str:
     if unit == "B":
         return f"{int(value)} {unit}"
     return f"{value:.1f} {unit}"
+
+
+def human_music_size(num_bytes: int) -> str:
+    value_gb = float(num_bytes) / (1024 ** 3)
+    if value_gb <= 0:
+        return "0 GB"
+    if value_gb >= 100:
+        return f"{value_gb:.0f} GB"
+    return f"{value_gb:.1f} GB"
 
 
 def acceptance_label(meta: dict[str, str], lang: str) -> str:
@@ -2820,28 +2926,34 @@ def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dic
     }
 
 
-def fetch_summary(connection: sqlite3.Connection) -> sqlite3.Row:
+def fetch_summary(connection: sqlite3.Connection) -> dict[str, Any]:
     if table_exists(connection, "track_uploaders"):
-        return connection.execute(
+        row = connection.execute(
             """
             SELECT
                 COUNT(*) AS tracks,
                 COUNT(DISTINCT artist) AS artists,
                 COUNT(DISTINCT artist || '::' || album) AS albums,
-                (SELECT COUNT(DISTINCT username) FROM track_uploaders) AS uploaders
+                (SELECT COUNT(DISTINCT username) FROM track_uploaders) AS uploaders,
+                COALESCE(SUM(file_size), 0) AS total_size
             FROM tracks
             """
         ).fetchone()
-    return connection.execute(
-        """
-        SELECT
-            COUNT(*) AS tracks,
-            COUNT(DISTINCT artist) AS artists,
-            COUNT(DISTINCT artist || '::' || album) AS albums,
-            COUNT(DISTINCT uploader) AS uploaders
-        FROM tracks
-        """
-    ).fetchone()
+    else:
+        row = connection.execute(
+            """
+            SELECT
+                COUNT(*) AS tracks,
+                COUNT(DISTINCT artist) AS artists,
+                COUNT(DISTINCT artist || '::' || album) AS albums,
+                COUNT(DISTINCT uploader) AS uploaders,
+                COALESCE(SUM(file_size), 0) AS total_size
+            FROM tracks
+            """
+        ).fetchone()
+    summary = dict(row)
+    summary["music_size_label"] = human_music_size(int(summary.get("total_size") or 0))
+    return summary
 
 
 def fetch_tracks(
@@ -3146,6 +3258,9 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
         "lang_url_vi": url_with_lang(request, lang="vi"),
         "lang_url_en": url_with_lang(request, lang="en"),
         "csrf_token": csrf_token,
+        "user_upload_file_limit": user_upload_file_limit(admin_user),
+        "user_upload_zip_limit": user_upload_zip_limit(admin_user),
+        "user_bundle_track_limit": user_bundle_track_limit(admin_user),
     }
     response = templates.TemplateResponse(request, "admin.html", context, status_code=status_code)
     set_lang_cookie(request, response, lang)
@@ -3192,6 +3307,9 @@ def render_home(
             "download_hint": t["login_required_tip"],
             "storage_note": t["storage_note"],
             "csrf_token": csrf_token,
+            "user_upload_file_limit": user_upload_file_limit(user),
+            "user_upload_zip_limit": user_upload_zip_limit(user),
+            "user_bundle_track_limit": user_bundle_track_limit(user),
         }
         response = templates.TemplateResponse(
             request,
@@ -3202,6 +3320,14 @@ def render_home(
         set_lang_cookie(request, response, lang)
         set_csrf_cookie(request, response, csrf_token)
         return response
+
+
+@app.get("/robots.txt")
+async def robots_txt() -> PlainTextResponse:
+    return PlainTextResponse(
+        "User-agent: *\nDisallow: /\n",
+        headers={"X-Robots-Tag": ROBOTS_POLICY, "Referrer-Policy": "no-referrer"},
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -3445,9 +3571,12 @@ async def upload(
     if not user["is_active"]:
         return render_home(request, notice=t["user_disabled"], status_code=403)
     uploader_name = user["username"]
+    max_upload_files = user_upload_file_limit(user)
+    max_zip_uploads = user_upload_zip_limit(user)
     batch_id = re.sub(r"[^a-zA-Z0-9_-]", "", upload_batch_id or "")[:64]
     try:
-        enforce_upload_rate_limit(request, uploader_name, batch_id=batch_id)
+        if not is_admin_user(user):
+            enforce_upload_rate_limit(request, uploader_name, batch_id=batch_id)
     except HTTPException as exc:
         return render_home(request, notice=str(exc.detail), status_code=exc.status_code)
     if not rights_confirmed:
@@ -3455,8 +3584,26 @@ async def upload(
 
     accepted: list[str] = []
     rejected: list[str] = []
-    await process_direct_uploads(files, uploader_name, accepted, rejected, lang)
-    await process_zip_upload(zip_file, uploader_name, accepted, rejected, lang)
+    try:
+        ensure_single_upload_mode(bool([upload for upload in files if upload.filename]), bool(zip_file and zip_file.filename))
+    except IngestError as exc:
+        return render_home(request, notice=describe_error(str(exc), lang), status_code=400)
+    await process_direct_uploads(
+        files,
+        uploader_name,
+        accepted,
+        rejected,
+        lang,
+        max_upload_files=max_upload_files,
+    )
+    await process_zip_upload(
+        zip_file,
+        uploader_name,
+        accepted,
+        rejected,
+        lang,
+        max_zip_uploads=max_zip_uploads,
+    )
 
     if not accepted and not rejected:
         return render_home(request, notice=t["nothing_uploaded"], status_code=400)
@@ -3491,7 +3638,8 @@ async def upload_chunk(
         return JSONResponse({"ok": False, "detail": t["user_disabled"]}, status_code=403)
     batch_id = normalize_batch_id(upload_batch_id)
     try:
-        enforce_upload_rate_limit(request, user["username"], batch_id=batch_id)
+        if not is_admin_user(user):
+            enforce_upload_rate_limit(request, user["username"], batch_id=batch_id)
         meta = await append_chunk_to_batch(
             chunk,
             batch_id=batch_id,
@@ -3500,6 +3648,8 @@ async def upload_chunk(
             upload_kind=upload_kind,
             chunk_offset=chunk_offset,
             upload_size=upload_size,
+            max_upload_files=user_upload_file_limit(user),
+            max_zip_uploads=user_upload_zip_limit(user),
         )
     except HTTPException as exc:
         return JSONResponse({"ok": False, "detail": str(exc.detail)}, status_code=exc.status_code)
@@ -3586,6 +3736,8 @@ async def upload_complete(
             accepted,
             rejected,
             lang,
+            max_upload_files=user_upload_file_limit(user),
+            max_zip_uploads=user_upload_zip_limit(user),
         )
     except IngestError as exc:
         cleanup_batch_dir(batch_id)
@@ -3729,8 +3881,9 @@ async def download_bundle(request: Request, ids: str = "") -> FileResponse:
     track_ids = list(dict.fromkeys(track_ids))
     if not track_ids:
         raise HTTPException(status_code=400, detail=text_for(lang)["track_not_found"])
-    if len(track_ids) > MAX_BUNDLE_TRACKS:
-        raise HTTPException(status_code=400, detail=f"too many tracks, max {MAX_BUNDLE_TRACKS}")
+    bundle_limit = user_bundle_track_limit(user)
+    if bundle_limit is not None and len(track_ids) > bundle_limit:
+        raise HTTPException(status_code=400, detail=f"too many tracks, max {bundle_limit}")
 
     placeholders = ",".join("?" for _ in track_ids)
     with get_db() as connection:

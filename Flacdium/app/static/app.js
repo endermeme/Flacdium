@@ -22,15 +22,39 @@ const uploadFilesInput = uploadForm ? uploadForm.querySelector('input[name="file
 const uploadZipInput = uploadForm ? uploadForm.querySelector('input[name="zip_file"]') : null;
 const rightsCheckbox = uploadForm ? uploadForm.querySelector('input[name="rights_confirmed"]') : null;
 const csrfField = uploadForm ? uploadForm.querySelector('input[name="csrf_token"]') : null;
-const downloadSelectedButton = document.querySelector("[data-download-selected]");
-const downloadZipButton = document.querySelector("[data-download-zip]");
+const downloadSelectedButtons = Array.from(document.querySelectorAll("[data-download-selected]"));
+const downloadZipButtons = Array.from(document.querySelectorAll("[data-download-zip]"));
 const trackSelectBoxes = Array.from(document.querySelectorAll("[data-track-select]"));
+const mobileSelectionDock = document.querySelector("[data-mobile-selection-dock]");
+const mobileSelectionCount = document.querySelector("[data-mobile-selection-count]");
 const nextFields = Array.from(document.querySelectorAll("[data-next-field]"));
 const authTabs = Array.from(document.querySelectorAll("[data-auth-tab]"));
 const authForms = Array.from(document.querySelectorAll("[data-auth-form]"));
 
 let spectrumRequestId = 0;
 let uploadInFlight = false;
+function parseNullableInt(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+const userBundleTrackLimit = parseNullableInt(body.dataset.userBundleTrackLimit);
+const userUploadFileLimit = parseNullableInt(body.dataset.userUploadFileLimit);
+const userUploadZipLimit = parseNullableInt(body.dataset.userUploadZipLimit);
+const trackSelectGroups = new Map();
+
+[...downloadSelectedButtons, ...downloadZipButtons].forEach((button) => {
+  if (!button.dataset.baseLabel) {
+    button.dataset.baseLabel = button.textContent.trim();
+  }
+});
+
+trackSelectBoxes.forEach((box) => {
+  const group = trackSelectGroups.get(box.value) || [];
+  group.push(box);
+  trackSelectGroups.set(box.value, group);
+});
 
 function setNextTarget(target) {
   nextFields.forEach((input) => {
@@ -175,16 +199,33 @@ function generateBatchId() {
 }
 
 function selectedTrackIds() {
-  return trackSelectBoxes.filter((box) => box.checked).map((box) => box.value);
+  return Array.from(new Set(trackSelectBoxes.filter((box) => box.checked).map((box) => box.value)));
+}
+
+function syncTrackSelection(trackId, checked, sourceBox) {
+  (trackSelectGroups.get(trackId) || []).forEach((box) => {
+    if (box !== sourceBox) {
+      box.checked = checked;
+    }
+  });
 }
 
 function syncSelectionButtons() {
-  const hasSelection = selectedTrackIds().length > 0;
-  [downloadSelectedButton, downloadZipButton].forEach((button) => {
+  const selectedCount = selectedTrackIds().length;
+  const hasSelection = selectedCount > 0;
+  [...downloadSelectedButtons, ...downloadZipButtons].forEach((button) => {
     if (!button) return;
     button.disabled = !hasSelection;
     button.classList.toggle("is-ready", hasSelection);
+    const label = button.dataset.baseLabel || button.textContent.trim();
+    button.textContent = hasSelection ? `${label} (${selectedCount})` : label;
   });
+  if (mobileSelectionDock) {
+    mobileSelectionDock.classList.toggle("is-active", hasSelection);
+  }
+  if (mobileSelectionCount) {
+    mobileSelectionCount.textContent = String(selectedCount);
+  }
 }
 
 function createRequest(url, formData, batchId, onProgress, onDone, onFail) {
@@ -302,7 +343,10 @@ document.querySelectorAll("[data-requires-auth]").forEach((node) => {
 });
 
 trackSelectBoxes.forEach((box) => {
-  box.addEventListener("change", syncSelectionButtons);
+  box.addEventListener("change", () => {
+    syncTrackSelection(box.value, box.checked, box);
+    syncSelectionButtons();
+  });
 });
 
 syncSelectionButtons();
@@ -372,6 +416,21 @@ if (uploadForm && window.XMLHttpRequest && window.FormData) {
     const directFiles = uploadFilesInput && uploadFilesInput.files ? Array.from(uploadFilesInput.files).filter((file) => file && file.name) : [];
     const zipFiles = uploadZipInput && uploadZipInput.files ? Array.from(uploadZipInput.files).filter((file) => file && file.name) : [];
     if (directFiles.length === 0 && zipFiles.length === 0) {
+      return;
+    }
+    if (directFiles.length > 0 && zipFiles.length > 0) {
+      event.preventDefault();
+      window.alert(uploadForm.dataset.uploadMixedMessage || "Choose only one upload mode per batch.");
+      return;
+    }
+    if (userUploadFileLimit !== null && directFiles.length > userUploadFileLimit) {
+      event.preventDefault();
+      window.alert(uploadForm.dataset.uploadFlacLimitMessage || `Max ${userUploadFileLimit} FLAC files per upload.`);
+      return;
+    }
+    if (userUploadZipLimit !== null && zipFiles.length > userUploadZipLimit) {
+      event.preventDefault();
+      window.alert(uploadForm.dataset.uploadZipLimitMessage || "Only 1 ZIP file is allowed per upload.");
       return;
     }
 
@@ -533,12 +592,16 @@ if (uploadForm && window.XMLHttpRequest && window.FormData) {
   hideUploadProgress();
 }
 
-if (downloadSelectedButton) {
-  downloadSelectedButton.addEventListener("click", () => {
+downloadSelectedButtons.forEach((button) => {
+  button.addEventListener("click", () => {
     const ids = selectedTrackIds();
     if (ids.length === 0) return;
     if (body.dataset.userAuthenticated !== "1") {
       openAuth("login");
+      return;
+    }
+    if (userBundleTrackLimit !== null && ids.length > userBundleTrackLimit) {
+      window.alert(button.dataset.downloadLimitMessage || `Max ${userBundleTrackLimit} files.`);
       return;
     }
     ids.forEach((trackId, index) => {
@@ -552,16 +615,20 @@ if (downloadSelectedButton) {
       }, index * 650);
     });
   });
-}
+});
 
-if (downloadZipButton) {
-  downloadZipButton.addEventListener("click", () => {
+downloadZipButtons.forEach((button) => {
+  button.addEventListener("click", () => {
     const ids = selectedTrackIds();
     if (ids.length === 0) return;
     if (body.dataset.userAuthenticated !== "1") {
       openAuth("login");
       return;
     }
+    if (userBundleTrackLimit !== null && ids.length > userBundleTrackLimit) {
+      window.alert(button.dataset.downloadLimitMessage || `Max ${userBundleTrackLimit} tracks.`);
+      return;
+    }
     window.location.href = `/download-bundle?ids=${encodeURIComponent(ids.join(","))}`;
   });
-}
+});

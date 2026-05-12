@@ -3,12 +3,23 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+    <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+    <meta name="referrer" content="no-referrer">
     <title>{{ t["site_title"] }}</title>
     <link rel="icon" type="image/jpeg" href="/static/brand-tree.jpg">
     <link rel="stylesheet" href="/static/styles.css">
     <script defer src="/static/app.js"></script>
   </head>
-  <body data-auth-open="{{ '1' if auth_open else '0' }}" data-auth-mode="{{ auth_mode }}" data-user-authenticated="{{ '1' if current_user else '0' }}">
+  <body
+    data-auth-open="{{ '1' if auth_open else '0' }}"
+    data-auth-mode="{{ auth_mode }}"
+    data-user-authenticated="{{ '1' if current_user else '0' }}"
+    data-user-admin="{{ '1' if current_user and current_user['is_admin'] else '0' }}"
+    data-user-upload-file-limit="{{ '' if user_upload_file_limit is none else user_upload_file_limit }}"
+    data-user-upload-zip-limit="{{ '' if user_upload_zip_limit is none else user_upload_zip_limit }}"
+    data-user-bundle-track-limit="{{ '' if user_bundle_track_limit is none else user_bundle_track_limit }}"
+  >
     <div class="site-shell">
       <header class="masthead">
         <div class="brand-lockup">

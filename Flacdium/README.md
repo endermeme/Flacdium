@@ -62,3 +62,4 @@ Set `FLACDIUM_TRUST_PROXY=1` only when the app is actually behind a reverse prox
 Passwords are stored with salted PBKDF2-SHA256 hashes. POST forms use CSRF tokens, login/signup/upload are rate-limited, and uploads are capped by file count and size.
 The Docker image now starts as root only long enough to claim mounted state dirs, then drops to the unprivileged `flacdium` user before running `uvicorn`.
 Keep `.env` private and rotate the secret/API key if this project is exposed beyond a trusted environment.
+The app now emits `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet, noimageindex` and serves `robots.txt` with `Disallow: /`.

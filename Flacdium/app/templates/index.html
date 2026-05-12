@@ -167,6 +167,7 @@
       <span><strong>{{ summary["artists"] }}</strong> {{ t["stats_artists"] }}</span>
       <span><strong>{{ summary["albums"] }}</strong> {{ t["stats_albums"] }}</span>
       <span><strong>{{ summary["uploaders"] }}</strong> {{ t["stats_uploaders"] }}</span>
+      <span><strong>{{ summary["music_size_label"] }}</strong> {{ t["stats_music_size"] }}</span>
     </div>
 
     <form
@@ -178,9 +179,18 @@
       data-upload-uploading="{{ t['upload_progress_uploading'] }}"
       data-upload-processing="{{ t['upload_progress_processing'] }}"
       data-upload-error="{{ t['upload_progress_error'] }}"
+      data-upload-mixed-message="{{ t['choose_flac_or_zip'] }}"
+      data-upload-flac-limit-message="{{ t['too_many_upload_files'] }}"
+      data-upload-zip-limit-message="{{ t['too_many_upload_zip_files'] }}"
     >
       <div class="panel-topline">
         <div class="panel-title">{{ t["upload_lane"] }}</div>
+        <div class="panel-note panel-note-rich">
+          {% for segment in t["upload_note"].split(" | ") %}
+            <span>{{ segment }}</span>
+            {% if not loop.last %}<i>&bull;</i>{% endif %}
+          {% endfor %}
+        </div>
       </div>
       <div class="upload-grid">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -301,8 +311,8 @@
     <section class="table-wrap">
       <div class="table-toolbar">
         <div class="selection-tools">
-          <button type="button" class="mini-button" data-download-selected>{{ t["download_many_flac"] }}</button>
-          <button type="button" class="mini-button" data-download-zip>{{ t["download_zip"] }}</button>
+          <button type="button" class="mini-button" data-download-selected data-base-label="{{ t['download_many_flac'] }}" data-download-limit-message="{{ t['download_many_limit'] }}">{{ t["download_many_flac"] }}</button>
+          <button type="button" class="mini-button" data-download-zip data-base-label="{{ t['download_zip'] }}" data-download-limit-message="{{ t['download_zip_limit'] }}">{{ t["download_zip"] }}</button>
         </div>
         <button type="button" class="mini-button toolbar-quickfind" data-open-quickfind>{{ t["nav_quickfind"] }}</button>
       </div>
@@ -326,24 +336,24 @@
           <tbody>
             {% for track in tracks %}
               <tr>
-                <td class="select-col">
+                <td class="select-col" data-label="{{ t['select'] }}">
                   <input type="checkbox" value="{{ track['id'] }}" data-track-select>
                 </td>
-                <td class="cover-cell">
+                <td class="cover-cell" data-label="{{ t['cover'] }}">
                   <img src="{{ track['cover_url'] }}" alt="{{ track['album'] }}">
                 </td>
-                <td>
+                <td data-label="{{ t['track'] }}">
                   <strong class="track-main">{{ "%02d"|format(track["track_number"]) }}. {{ track["title"] }}</strong>
                   <span class="subline">{{ t["disc"] }} {{ track["disc_number"] }} | {{ track["genre"] or t["genre_missing"] }}</span>
                 </td>
-                <td><a href="/?artist={{ track['artist'] | urlencode }}&lang={{ lang }}">{{ track["artist"] }}</a></td>
-                <td><a href="/?artist={{ track['artist'] | urlencode }}&album={{ track['album'] | urlencode }}&lang={{ lang }}">{{ track["album"] }}</a></td>
-                <td class="uploader-credit-cell" title="{{ track['uploader_full'] }}">{{ track["uploader_display"] }}</td>
-                <td>{{ track["year"] }}</td>
-                <td>{{ track["duration_label"] }}</td>
-                <td>{{ track["size_label"] }}</td>
-                <td>{{ track["specs_label"] }}</td>
-                <td>
+                <td data-label="{{ t['artist'] }}"><a href="/?artist={{ track['artist'] | urlencode }}&lang={{ lang }}">{{ track["artist"] }}</a></td>
+                <td data-label="{{ t['album'] }}"><a href="/?artist={{ track['artist'] | urlencode }}&album={{ track['album'] | urlencode }}&lang={{ lang }}">{{ track["album"] }}</a></td>
+                <td class="uploader-credit-cell" data-label="{{ t['uploader'] }}" title="{{ track['uploader_full'] }}">{{ track["uploader_display"] }}</td>
+                <td data-label="{{ t['year'] }}">{{ track["year"] }}</td>
+                <td data-label="{{ t['length'] }}">{{ track["duration_label"] }}</td>
+                <td data-label="{{ t['size'] }}">{{ track["size_label"] }}</td>
+                <td data-label="{{ t['spec'] }}">{{ track["specs_label"] }}</td>
+                <td class="track-actions-cell" data-label="{{ t['grab'] }}">
                   <div class="track-actions">
                     {% if current_user %}
                       <a href="/download/{{ track['id'] }}" class="download-link">{{ t["download_label"] }}</a>
@@ -383,4 +393,11 @@
       <div class="scroll-hint">{{ tracks|length }} items</div>
     </section>
   </main>
+
+  <div class="mobile-selection-dock" data-mobile-selection-dock>
+    <span class="mobile-selection-count" data-mobile-selection-count>0</span>
+    <button type="button" class="mini-button mobile-dock-button mobile-dock-quickfind" data-open-quickfind>{{ t["nav_quickfind"] }}</button>
+    <button type="button" class="mini-button mobile-dock-button" data-download-selected data-base-label="{{ t['download_many_flac'] }}" data-download-limit-message="{{ t['download_many_limit'] }}">{{ t["download_many_flac"] }}</button>
+    <button type="button" class="mini-button mobile-dock-button" data-download-zip data-base-label="{{ t['download_zip'] }}" data-download-limit-message="{{ t['download_zip_limit'] }}">{{ t["download_zip"] }}</button>
+  </div>
 {% endblock %}
