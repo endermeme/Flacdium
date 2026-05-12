@@ -14,7 +14,6 @@
   <body
     data-auth-open="{{ '1' if auth_open else '0' }}"
     data-auth-mode="{{ auth_mode }}"
-    data-mobile-panel-open="{{ '1' if mobile_panel_open else '0' }}"
     data-user-authenticated="{{ '1' if current_user else '0' }}"
     data-user-admin="{{ '1' if current_user and current_user['is_admin'] else '0' }}"
     data-user-upload-file-limit="{{ '' if user_upload_file_limit is none else user_upload_file_limit }}"
