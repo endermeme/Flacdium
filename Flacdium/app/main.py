@@ -178,6 +178,7 @@ TEXT: dict[str, dict[str, str]] = {
         "nav_albums": "album",
         "nav_uploaders": "người up",
         "nav_quickfind": "tìm nhanh",
+        "nav_mobile_panel": "danh mục",
         "nav_admin": "quản trị",
         "signal_strip": "giao diện archive cũ | tông sáng dịu | giữ cover art nhúng",
         "tech_strip": "node flacdium-01 | auth sqlite | ingest flac-only | dedupe sha256",
@@ -412,6 +413,7 @@ TEXT: dict[str, dict[str, str]] = {
         "nav_albums": "albums",
         "nav_uploaders": "uploaders",
         "nav_quickfind": "quick find",
+        "nav_mobile_panel": "sections",
         "nav_admin": "admin",
         "signal_strip": "old archive layout | soft light palette | embedded cover art preserved",
         "tech_strip": "node flacdium-01 | auth sqlite | ingest flac-only | dedupe sha256",
@@ -2926,6 +2928,32 @@ def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dic
     }
 
 
+def fetch_mobile_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dict[str, dict[str, Any]]:
+    sidebar = fetch_sidebar_lists(connection, request)
+    page_map = {
+        "artists": "artist_page",
+        "albums": "album_page",
+        "uploaders": "uploader_page",
+    }
+    mobile_sidebar: dict[str, dict[str, Any]] = {}
+    for key, page_param in page_map.items():
+        items = list(sidebar[key]["items"])
+        requested_page = parse_page(request.query_params.get(page_param))
+        pagination = build_pagination(request, page_param, requested_page, len(items), SIDEBAR_PAGE_SIZE)
+        current_page = pagination["page"]
+        start_index = (current_page - 1) * SIDEBAR_PAGE_SIZE
+        end_index = start_index + SIDEBAR_PAGE_SIZE
+        if pagination["prev_url"]:
+            pagination["prev_url"] = url_with_lang(request, **{page_param: str(current_page - 1), "mobile_panel": "1"})
+        if pagination["next_url"]:
+            pagination["next_url"] = url_with_lang(request, **{page_param: str(current_page + 1), "mobile_panel": "1"})
+        mobile_sidebar[key] = {
+            "items": items[start_index:end_index],
+            "pagination": pagination,
+        }
+    return mobile_sidebar
+
+
 def fetch_summary(connection: sqlite3.Connection) -> dict[str, Any]:
     if table_exists(connection, "track_uploaders"):
         row = connection.execute(
@@ -3244,6 +3272,7 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
         "current_user": admin_user,
         "notice": notice,
         "active_tab": active_tab,
+        "mobile_panel_open": False,
         "summary": summary,
         "users": users,
         "logs": logs,
@@ -3295,12 +3324,14 @@ def render_home(
             "filters": filters,
             "summary": fetch_summary(connection),
             "sidebar": fetch_sidebar_lists(connection, request),
+            "mobile_sidebar": fetch_mobile_sidebar_lists(connection, request),
             "quick_links": fetch_quick_links(connection),
             "sort_keys": list(SORTS.keys()),
             "sort_labels": {key: t[f"sort_{key}"] for key in SORTS},
             "current_user": user,
             "auth_open": auth_open,
             "auth_mode": auth_mode,
+            "mobile_panel_open": request.query_params.get("mobile_panel") == "1",
             "show_guest_notice": user is None,
             "lang_url_vi": url_with_lang(request, lang="vi"),
             "lang_url_en": url_with_lang(request, lang="en"),

@@ -1,6 +1,7 @@
 const body = document.body;
 const authOverlay = document.querySelector("[data-auth-overlay]");
 const quickfindOverlay = document.querySelector("[data-quickfind-overlay]");
+const mobilePanelOverlay = document.querySelector("[data-mobile-panel-overlay]");
 const spectrumOverlay = document.querySelector("[data-spectrum-overlay]");
 const spectrumImage = document.querySelector("[data-spectrum-image]");
 const spectrumHeading = document.querySelector("[data-spectrum-heading]");
@@ -71,7 +72,7 @@ function openOverlay(overlay) {
 function closeOverlay(overlay) {
   if (!overlay) return;
   overlay.classList.remove("is-visible");
-  if (!document.querySelector(".auth-overlay.is-visible, .quickfind-overlay.is-visible, .spectrum-overlay.is-visible, .player-overlay.is-visible")) {
+  if (!document.querySelector(".auth-overlay.is-visible, .quickfind-overlay.is-visible, .mobile-panel-overlay.is-visible, .spectrum-overlay.is-visible, .player-overlay.is-visible")) {
     body.classList.remove("auth-open");
   }
 }
@@ -98,6 +99,14 @@ function openQuickfind() {
 
 function closeQuickfind() {
   closeOverlay(quickfindOverlay);
+}
+
+function openMobilePanel() {
+  openOverlay(mobilePanelOverlay);
+}
+
+function closeMobilePanel() {
+  closeOverlay(mobilePanelOverlay);
 }
 
 function openSpectrum(button) {
@@ -308,6 +317,14 @@ document.querySelectorAll("[data-close-quickfind]").forEach((button) => {
   button.addEventListener("click", closeQuickfind);
 });
 
+document.querySelectorAll("[data-open-mobile-panel]").forEach((button) => {
+  button.addEventListener("click", openMobilePanel);
+});
+
+document.querySelectorAll("[data-close-mobile-panel]").forEach((button) => {
+  button.addEventListener("click", closeMobilePanel);
+});
+
 document.querySelectorAll("[data-open-spectrum]").forEach((button) => {
   button.addEventListener("click", () => openSpectrum(button));
 });
@@ -394,13 +411,17 @@ document.querySelectorAll("[data-bulk-form]").forEach((form) => {
 if (body.dataset.authOpen === "1") {
   openAuth(body.dataset.authMode || "login");
 }
+if (body.dataset.mobilePanelOpen === "1") {
+  openMobilePanel();
+}
 
-[authOverlay, quickfindOverlay, spectrumOverlay, playerOverlay].forEach((overlay) => {
+[authOverlay, quickfindOverlay, mobilePanelOverlay, spectrumOverlay, playerOverlay].forEach((overlay) => {
   if (!overlay) return;
   overlay.addEventListener("click", (event) => {
     if (event.target !== overlay) return;
     if (overlay === authOverlay) closeAuth();
     if (overlay === quickfindOverlay) closeQuickfind();
+    if (overlay === mobilePanelOverlay) closeMobilePanel();
     if (overlay === spectrumOverlay) closeSpectrum();
     if (overlay === playerOverlay) closePlayer();
   });

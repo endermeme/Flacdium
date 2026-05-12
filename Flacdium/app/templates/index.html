@@ -127,6 +127,86 @@
     </div>
   </div>
 
+  <div class="mobile-panel-overlay" data-mobile-panel-overlay>
+    <div class="mobile-panel-card">
+      <div class="auth-head">
+        <strong>{{ t["nav_mobile_panel"] }}</strong>
+        <button type="button" class="mini-link" data-close-mobile-panel>{{ t["close"] }}</button>
+      </div>
+      <div class="mobile-panel-stack">
+        <section class="mobile-panel-section">
+          <div class="panel-title">{{ t["artists"] }}</div>
+          <div class="mobile-panel-list">
+            {% for item in mobile_sidebar["artists"]["items"] %}
+              <a class="side-link" href="/?artist={{ item['artist'] | urlencode }}&lang={{ lang }}">{{ item["artist"] }} <span>{{ item["tracks"] }}</span></a>
+            {% endfor %}
+          </div>
+          <div class="mobile-panel-pager">
+            {% if mobile_sidebar["artists"]["pagination"]["prev_url"] %}
+              <a class="mini-button" href="{{ mobile_sidebar['artists']['pagination']['prev_url'] }}">{{ t["page_prev"] }}</a>
+            {% else %}
+              <span class="mini-button is-disabled">{{ t["page_prev"] }}</span>
+            {% endif %}
+            <span class="mobile-panel-page">{{ t["page_label"] }} {{ mobile_sidebar["artists"]["pagination"]["page"] }}/{{ mobile_sidebar["artists"]["pagination"]["total_pages"] }}</span>
+            {% if mobile_sidebar["artists"]["pagination"]["next_url"] %}
+              <a class="mini-button" href="{{ mobile_sidebar['artists']['pagination']['next_url'] }}">{{ t["page_next"] }}</a>
+            {% else %}
+              <span class="mini-button is-disabled">{{ t["page_next"] }}</span>
+            {% endif %}
+          </div>
+        </section>
+        <section class="mobile-panel-section">
+          <div class="panel-title">{{ t["albums"] }}</div>
+          <div class="mobile-panel-list">
+            {% for item in mobile_sidebar["albums"]["items"] %}
+              <a class="album-link" href="/?artist={{ item['artist'] | urlencode }}&album={{ item['album'] | urlencode }}&lang={{ lang }}">
+                <img src="/covers/{{ item['cover_path'] }}" alt="{{ item['album'] }}">
+                <span>
+                  <strong>{{ item["album"] }}</strong>
+                  <em>{{ item["artist"] }}</em>
+                </span>
+              </a>
+            {% endfor %}
+          </div>
+          <div class="mobile-panel-pager">
+            {% if mobile_sidebar["albums"]["pagination"]["prev_url"] %}
+              <a class="mini-button" href="{{ mobile_sidebar['albums']['pagination']['prev_url'] }}">{{ t["page_prev"] }}</a>
+            {% else %}
+              <span class="mini-button is-disabled">{{ t["page_prev"] }}</span>
+            {% endif %}
+            <span class="mobile-panel-page">{{ t["page_label"] }} {{ mobile_sidebar["albums"]["pagination"]["page"] }}/{{ mobile_sidebar["albums"]["pagination"]["total_pages"] }}</span>
+            {% if mobile_sidebar["albums"]["pagination"]["next_url"] %}
+              <a class="mini-button" href="{{ mobile_sidebar['albums']['pagination']['next_url'] }}">{{ t["page_next"] }}</a>
+            {% else %}
+              <span class="mini-button is-disabled">{{ t["page_next"] }}</span>
+            {% endif %}
+          </div>
+        </section>
+        <section class="mobile-panel-section">
+          <div class="panel-title">{{ t["uploaders"] }}</div>
+          <div class="mobile-panel-list">
+            {% for item in mobile_sidebar["uploaders"]["items"] %}
+              <a class="side-link" href="/?uploader={{ item['uploader'] | urlencode }}&lang={{ lang }}">{{ item["uploader"] }} <span>{{ item["tracks"] }}</span></a>
+            {% endfor %}
+          </div>
+          <div class="mobile-panel-pager">
+            {% if mobile_sidebar["uploaders"]["pagination"]["prev_url"] %}
+              <a class="mini-button" href="{{ mobile_sidebar['uploaders']['pagination']['prev_url'] }}">{{ t["page_prev"] }}</a>
+            {% else %}
+              <span class="mini-button is-disabled">{{ t["page_prev"] }}</span>
+            {% endif %}
+            <span class="mobile-panel-page">{{ t["page_label"] }} {{ mobile_sidebar["uploaders"]["pagination"]["page"] }}/{{ mobile_sidebar["uploaders"]["pagination"]["total_pages"] }}</span>
+            {% if mobile_sidebar["uploaders"]["pagination"]["next_url"] %}
+              <a class="mini-button" href="{{ mobile_sidebar['uploaders']['pagination']['next_url'] }}">{{ t["page_next"] }}</a>
+            {% else %}
+              <span class="mini-button is-disabled">{{ t["page_next"] }}</span>
+            {% endif %}
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
   <div class="spectrum-overlay" data-spectrum-overlay>
     <div class="spectrum-card">
       <div class="auth-head">
@@ -310,6 +390,7 @@
 
     <section class="table-wrap">
       <div class="table-toolbar">
+        <button type="button" class="mini-button mobile-panel-trigger" data-open-mobile-panel>{{ t["nav_mobile_panel"] }}</button>
         <div class="selection-tools">
           <button type="button" class="mini-button" data-download-selected data-base-label="{{ t['download_many_flac'] }}" data-download-limit-message="{{ t['download_many_limit'] }}">{{ t["download_many_flac"] }}</button>
           <button type="button" class="mini-button" data-download-zip data-base-label="{{ t['download_zip'] }}" data-download-limit-message="{{ t['download_zip_limit'] }}">{{ t["download_zip"] }}</button>
