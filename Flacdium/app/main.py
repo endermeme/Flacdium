@@ -192,7 +192,7 @@ TEXT: dict[str, dict[str, str]] = {
         "bulk_flac": "upload nhiều flac",
         "zip_drop": "upload zip",
         "rights_confirmed": "tôi sure là nhạc ngon",
-        "upload_note": "chỉ nhận flac | bắt buộc artist, album, title, tracknumber, date, cover art nhúng | ưu tiên indie/acoustic/alt-pop/emo/mellow rock, dự án DIY và vocal cảm xúc, chân thật | xin không nhận mix dài, edm, vinahouse, nhạc không lời :((( | user thường: tối đa 50 flac/lượt hoặc 1 zip/lượt | admin: bỏ giới hạn số lượt và số file",
+        "upload_note": "chỉ nhận flac | bắt buộc artist, album, title, tracknumber, date, cover art nhúng | ưu tiên indie/acoustic/alt-pop/emo/mellow rock, dự án DIY và vocal cảm xúc, chân thật | xin không nhận mix dài, edm, vinahouse, nhạc không lời :(((",
         "upload_cta": "đẩy vào index",
         "upload_progress_title": "tiến trình upload",
         "upload_progress_uploading": "đang tải file lên...",
