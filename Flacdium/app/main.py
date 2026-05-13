@@ -150,9 +150,10 @@ DOWNLOAD_RATE_WINDOW_SECONDS = env_int("FLACDIUM_DOWNLOAD_RATE_WINDOW_SECONDS", 
 MAX_CONCURRENT_DOWNLOADS = env_int("FLACDIUM_MAX_CONCURRENT_DOWNLOADS", 3)
 LANGUAGES = ("vi", "en")
 REQUIRED_TAGS = ("artist", "album", "title", "tracknumber", "date")
-TRACKS_PER_PAGE = 24
-SIDEBAR_PAGE_SIZE = 10
-QUICK_LINKS_LIMIT = 8
+TRACKS_PER_PAGE = max(6, env_int("FLACDIUM_TRACKS_PER_PAGE", 10))
+ARTISTS_PAGE_SIZE = 5
+ALBUMS_PAGE_SIZE = 6
+UPLOADERS_PAGE_SIZE = 4
 LOGIN_LOGS_PER_PAGE = 40
 MAX_BUNDLE_TRACKS = 100
 USER_MAX_BUNDLE_TRACKS = env_int("FLACDIUM_USER_MAX_BUNDLE_TRACKS", 50)
@@ -202,8 +203,8 @@ TEXT: dict[str, dict[str, str]] = {
         "find": "tìm",
         "find_placeholder": "ca sĩ / album / bài / thể loại",
         "exact_uploader": "đúng tên người up",
-        "exact_artist": "đúng tên ca sĩ",
-        "exact_album": "đúng tên album",
+        "exact_artist": "gần tên ca sĩ",
+        "exact_album": "gần tên album",
         "sort": "sắp xếp",
         "sort_newest": "mới nhất",
         "sort_oldest": "cũ nhất",
@@ -438,8 +439,8 @@ TEXT: dict[str, dict[str, str]] = {
         "find": "find",
         "find_placeholder": "artist / album / track / genre",
         "exact_uploader": "exact uploader",
-        "exact_artist": "exact artist",
-        "exact_album": "exact album",
+        "exact_artist": "rough artist name",
+        "exact_album": "rough album name",
         "sort": "sort",
         "sort_newest": "newest",
         "sort_oldest": "oldest",
@@ -2869,6 +2870,7 @@ def build_pagination(
     page: int,
     total_items: int,
     per_page: int,
+    anchor: str = "",
 ) -> dict[str, Any]:
     total_pages = max((total_items + per_page - 1) // per_page, 1)
     current_page = min(page, total_pages)
@@ -2878,55 +2880,143 @@ def build_pagination(
         prev_url = url_with_lang(request, **{page_param: str(current_page - 1)})
     if current_page < total_pages:
         next_url = url_with_lang(request, **{page_param: str(current_page + 1)})
+    if anchor:
+        if prev_url:
+            prev_url = f"{prev_url}{anchor}"
+        if next_url:
+            next_url = f"{next_url}{anchor}"
     return {
         "page": current_page,
         "total_pages": total_pages,
         "prev_url": prev_url,
         "next_url": next_url,
         "total_items": total_items,
+        "per_page": per_page,
     }
 
 
 def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dict[str, dict[str, Any]]:
+    artists_page = parse_page(request.query_params.get("artists_page"))
+    albums_page = parse_page(request.query_params.get("albums_page"))
+    uploaders_page = parse_page(request.query_params.get("uploaders_page"))
+
+    artists_total = connection.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM (SELECT artist FROM tracks GROUP BY artist)
+        """,
+    ).fetchone()["total"]
+    artists_pagination = build_pagination(
+        request,
+        "artists_page",
+        artists_page,
+        artists_total,
+        ARTISTS_PAGE_SIZE,
+        "#artists-panel",
+    )
     artists = connection.execute(
         """
         SELECT artist, COUNT(*) AS tracks
         FROM tracks
         GROUP BY artist
         ORDER BY tracks DESC, artist COLLATE NOCASE ASC
+        LIMIT ? OFFSET ?
         """,
+        (
+            ARTISTS_PAGE_SIZE,
+            (artists_pagination["page"] - 1) * ARTISTS_PAGE_SIZE,
+        ),
     ).fetchall()
+
+    albums_total = connection.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM (SELECT artist, album FROM tracks GROUP BY artist, album)
+        """,
+    ).fetchone()["total"]
+    albums_pagination = build_pagination(
+        request,
+        "albums_page",
+        albums_page,
+        albums_total,
+        ALBUMS_PAGE_SIZE,
+        "#albums-panel",
+    )
     albums = connection.execute(
         """
         SELECT artist, album, cover_path, COUNT(*) AS tracks
         FROM tracks
         GROUP BY artist, album
         ORDER BY MAX(uploaded_at) DESC
+        LIMIT ? OFFSET ?
         """,
+        (
+            ALBUMS_PAGE_SIZE,
+            (albums_pagination["page"] - 1) * ALBUMS_PAGE_SIZE,
+        ),
     ).fetchall()
+
     if table_exists(connection, "track_uploaders"):
+        uploaders_total = connection.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM (SELECT username FROM track_uploaders GROUP BY username)
+            """,
+        ).fetchone()["total"]
+        uploaders_pagination = build_pagination(
+            request,
+            "uploaders_page",
+            uploaders_page,
+            uploaders_total,
+            UPLOADERS_PAGE_SIZE,
+            "#uploaders-panel",
+        )
         uploaders = connection.execute(
             """
             SELECT username AS uploader, COUNT(DISTINCT track_id) AS tracks
             FROM track_uploaders
             GROUP BY username
             ORDER BY tracks DESC, username COLLATE NOCASE ASC
+            LIMIT ? OFFSET ?
             """,
+            (
+                UPLOADERS_PAGE_SIZE,
+                (uploaders_pagination["page"] - 1) * UPLOADERS_PAGE_SIZE,
+            ),
         ).fetchall()
     else:
+        uploaders_total = connection.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM (SELECT uploader FROM tracks GROUP BY uploader)
+            """,
+        ).fetchone()["total"]
+        uploaders_pagination = build_pagination(
+            request,
+            "uploaders_page",
+            uploaders_page,
+            uploaders_total,
+            UPLOADERS_PAGE_SIZE,
+            "#uploaders-panel",
+        )
         uploaders = connection.execute(
             """
             SELECT uploader, COUNT(*) AS tracks
             FROM tracks
             GROUP BY uploader
             ORDER BY tracks DESC, uploader COLLATE NOCASE ASC
+            LIMIT ? OFFSET ?
             """,
+            (
+                UPLOADERS_PAGE_SIZE,
+                (uploaders_pagination["page"] - 1) * UPLOADERS_PAGE_SIZE,
+            ),
         ).fetchall()
 
     return {
-        "artists": {"items": artists},
-        "albums": {"items": albums},
-        "uploaders": {"items": uploaders},
+        "artists": {"items": artists, "pagination": artists_pagination},
+        "albums": {"items": albums, "pagination": albums_pagination},
+        "uploaders": {"items": uploaders, "pagination": uploaders_pagination},
     }
 
 
@@ -2970,6 +3060,7 @@ def fetch_tracks(
     artist = (request.query_params.get("artist") or "").strip()
     album = (request.query_params.get("album") or "").strip()
     sort = request.query_params.get("sort") or "newest"
+    tracks_page = parse_page(request.query_params.get("tracks_page"))
     order_by = SORTS.get(sort, SORTS["newest"])
 
     sql = "FROM tracks WHERE 1=1"
@@ -2986,16 +3077,12 @@ def fetch_tracks(
             sql += " AND uploader = ?"
         params.append(uploader)
     if artist:
-        sql += " AND artist = ?"
-        params.append(artist)
+        sql += " AND artist LIKE ?"
+        params.append(f"%{artist}%")
     if album:
-        sql += " AND album = ?"
-        params.append(album)
+        sql += " AND album LIKE ?"
+        params.append(f"%{album}%")
 
-    rows = connection.execute(
-        f"SELECT * {sql} ORDER BY {order_by}",
-        params,
-    ).fetchall()
     filters = {
         "q": q,
         "uploader": uploader,
@@ -3003,6 +3090,22 @@ def fetch_tracks(
         "album": album,
         "sort": sort,
     }
+    total_items = connection.execute(
+        f"SELECT COUNT(*) AS total {sql}",
+        params,
+    ).fetchone()["total"]
+    pagination = build_pagination(
+        request,
+        "tracks_page",
+        tracks_page,
+        total_items,
+        TRACKS_PER_PAGE,
+        "#tracks-panel",
+    )
+    rows = connection.execute(
+        f"SELECT * {sql} ORDER BY {order_by} LIMIT ? OFFSET ?",
+        (*params, TRACKS_PER_PAGE, (pagination["page"] - 1) * TRACKS_PER_PAGE),
+    ).fetchall()
     tracks: list[dict[str, Any]] = []
     uploader_map = build_uploader_map(connection, [int(row["id"]) for row in rows])
     for row in rows:
@@ -3015,46 +3118,126 @@ def fetch_tracks(
         track["uploader_names"] = uploader_map.get(int(row["id"]), [str(row["uploader"])])
         track["uploader_display"], track["uploader_full"] = format_uploader_display(track["uploader_names"])
         tracks.append(track)
-    return tracks, filters, {"total_items": len(tracks)}
+    return tracks, filters, pagination
 
 
-def fetch_quick_links(connection: sqlite3.Connection) -> dict[str, list[sqlite3.Row]]:
+def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[str, dict[str, Any]]:
+    quick_artists_page = parse_page(request.query_params.get("quick_artists_page"))
+    quick_albums_page = parse_page(request.query_params.get("quick_albums_page"))
+    quick_uploaders_page = parse_page(request.query_params.get("quick_uploaders_page"))
+
+    artists_total = connection.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM (SELECT artist FROM tracks GROUP BY artist)
+        """,
+    ).fetchone()["total"]
+    artists_pagination = build_pagination(
+        request,
+        "quick_artists_page",
+        quick_artists_page,
+        artists_total,
+        ARTISTS_PAGE_SIZE,
+    )
+    artists = connection.execute(
+        """
+        SELECT artist, COUNT(*) AS tracks
+        FROM tracks
+        GROUP BY artist
+        ORDER BY tracks DESC, artist COLLATE NOCASE ASC
+        LIMIT ? OFFSET ?
+        """,
+        (
+            ARTISTS_PAGE_SIZE,
+            (artists_pagination["page"] - 1) * ARTISTS_PAGE_SIZE,
+        ),
+    ).fetchall()
+
+    albums_total = connection.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM (SELECT artist, album FROM tracks GROUP BY artist, album)
+        """,
+    ).fetchone()["total"]
+    albums_pagination = build_pagination(
+        request,
+        "quick_albums_page",
+        quick_albums_page,
+        albums_total,
+        ALBUMS_PAGE_SIZE,
+    )
+    albums = connection.execute(
+        """
+        SELECT artist, album, COUNT(*) AS tracks
+        FROM tracks
+        GROUP BY artist, album
+        ORDER BY MAX(uploaded_at) DESC
+        LIMIT ? OFFSET ?
+        """,
+        (
+            ALBUMS_PAGE_SIZE,
+            (albums_pagination["page"] - 1) * ALBUMS_PAGE_SIZE,
+        ),
+    ).fetchall()
+
     if table_exists(connection, "track_uploaders"):
+        uploaders_total = connection.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM (SELECT username FROM track_uploaders GROUP BY username)
+            """,
+        ).fetchone()["total"]
+        uploaders_pagination = build_pagination(
+            request,
+            "quick_uploaders_page",
+            quick_uploaders_page,
+            uploaders_total,
+            UPLOADERS_PAGE_SIZE,
+        )
         uploaders = connection.execute(
             """
             SELECT username AS uploader, COUNT(DISTINCT track_id) AS tracks
             FROM track_uploaders
             GROUP BY username
             ORDER BY tracks DESC, username COLLATE NOCASE ASC
+            LIMIT ? OFFSET ?
             """,
+            (
+                UPLOADERS_PAGE_SIZE,
+                (uploaders_pagination["page"] - 1) * UPLOADERS_PAGE_SIZE,
+            ),
         ).fetchall()
     else:
+        uploaders_total = connection.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM (SELECT uploader FROM tracks GROUP BY uploader)
+            """,
+        ).fetchone()["total"]
+        uploaders_pagination = build_pagination(
+            request,
+            "quick_uploaders_page",
+            quick_uploaders_page,
+            uploaders_total,
+            UPLOADERS_PAGE_SIZE,
+        )
         uploaders = connection.execute(
             """
             SELECT uploader, COUNT(*) AS tracks
             FROM tracks
             GROUP BY uploader
             ORDER BY tracks DESC, uploader COLLATE NOCASE ASC
+            LIMIT ? OFFSET ?
             """,
+            (
+                UPLOADERS_PAGE_SIZE,
+                (uploaders_pagination["page"] - 1) * UPLOADERS_PAGE_SIZE,
+            ),
         ).fetchall()
     return {
-        "artists": connection.execute(
-            """
-            SELECT artist, COUNT(*) AS tracks
-            FROM tracks
-            GROUP BY artist
-            ORDER BY tracks DESC, artist COLLATE NOCASE ASC
-            """,
-        ).fetchall(),
-        "albums": connection.execute(
-            """
-            SELECT artist, album, COUNT(*) AS tracks
-            FROM tracks
-            GROUP BY artist, album
-            ORDER BY MAX(uploaded_at) DESC
-            """,
-        ).fetchall(),
-        "uploaders": uploaders,
+        "artists": {"items": artists, "pagination": artists_pagination},
+        "albums": {"items": albums, "pagination": albums_pagination},
+        "uploaders": {"items": uploaders, "pagination": uploaders_pagination},
     }
 
 
@@ -3265,6 +3448,7 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
         "user_upload_file_limit": user_upload_file_limit(admin_user),
         "user_upload_zip_limit": user_upload_zip_limit(admin_user),
         "user_bundle_track_limit": user_bundle_track_limit(admin_user),
+        "page_kind": "admin",
     }
     response = templates.TemplateResponse(request, "admin.html", context, status_code=status_code)
     set_lang_cookie(request, response, lang)
@@ -3299,7 +3483,7 @@ def render_home(
             "filters": filters,
             "summary": fetch_summary(connection),
             "sidebar": fetch_sidebar_lists(connection, request),
-            "quick_links": fetch_quick_links(connection),
+            "quick_links": fetch_quick_links(connection, request),
             "sort_keys": list(SORTS.keys()),
             "sort_labels": {key: t[f"sort_{key}"] for key in SORTS},
             "current_user": user,
@@ -3314,6 +3498,7 @@ def render_home(
             "user_upload_file_limit": user_upload_file_limit(user),
             "user_upload_zip_limit": user_upload_zip_limit(user),
             "user_bundle_track_limit": user_bundle_track_limit(user),
+            "page_kind": "home",
         }
         response = templates.TemplateResponse(
             request,
@@ -3614,6 +3799,15 @@ async def upload(
 
     notice = t["accepted_summary"].format(accepted=len(accepted), rejected=len(rejected))
     return render_home(request, notice=notice, accepted=accepted, rejected=rejected)
+
+
+@app.get("/upload")
+async def upload_get_redirect(request: Request) -> RedirectResponse:
+    params = {key: value for key, value in request.query_params.items() if key != "lang"}
+    params["lang"] = get_lang(request)
+    query = urlencode({key: value for key, value in params.items() if value != ""})
+    target = f"/?{query}" if query else "/"
+    return RedirectResponse(target, status_code=303)
 
 
 @app.post("/upload/chunk")

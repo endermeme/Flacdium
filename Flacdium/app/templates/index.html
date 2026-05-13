@@ -102,40 +102,70 @@
         <section class="quick-links-panel">
           <div class="panel-title">{{ t["artists"] }}</div>
           <div class="quick-links-content">
-            {% for item in quick_links["artists"][:10] %}
+            {% for item in quick_links["artists"]["items"] %}
               <a class="quick-link-item" href="/?artist={{ item['artist'] | urlencode }}&lang={{ lang }}">{{ item["artist"] }} <span>{{ item["tracks"] }}</span></a>
             {% endfor %}
           </div>
-          {% if quick_links["artists"]|length > 10 %}
-          <div class="quick-links-pager">
-            <span class="quick-links-more">{{ quick_links["artists"]|length - 10 }} {{ t["artists"] }} more</span>
-          </div>
+          {% if quick_links["artists"]["pagination"]["total_pages"] > 1 %}
+            <div class="quick-links-pager">
+              {% if quick_links["artists"]["pagination"]["prev_url"] %}
+                <a class="pager-link" href="{{ quick_links['artists']['pagination']['prev_url'] }}" data-ajax-page="quickfind">{{ t["page_prev"] }}</a>
+              {% else %}
+                <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
+              {% endif %}
+              <span class="pager-mini-status">{{ quick_links["artists"]["pagination"]["page"] }}/{{ quick_links["artists"]["pagination"]["total_pages"] }}</span>
+              {% if quick_links["artists"]["pagination"]["next_url"] %}
+                <a class="pager-link" href="{{ quick_links['artists']['pagination']['next_url'] }}" data-ajax-page="quickfind">{{ t["page_next"] }}</a>
+              {% else %}
+                <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
+              {% endif %}
+            </div>
           {% endif %}
         </section>
         <section class="quick-links-panel">
           <div class="panel-title">{{ t["albums"] }}</div>
           <div class="quick-links-content">
-            {% for item in quick_links["albums"][:10] %}
+            {% for item in quick_links["albums"]["items"] %}
               <a class="quick-link-item" href="/?artist={{ item['artist'] | urlencode }}&album={{ item['album'] | urlencode }}&lang={{ lang }}">{{ item["album"] }} <span>{{ item["tracks"] }}</span></a>
             {% endfor %}
           </div>
-          {% if quick_links["albums"]|length > 10 %}
-          <div class="quick-links-pager">
-            <span class="quick-links-more">{{ quick_links["albums"]|length - 10 }} {{ t["albums"] }} more</span>
-          </div>
+          {% if quick_links["albums"]["pagination"]["total_pages"] > 1 %}
+            <div class="quick-links-pager">
+              {% if quick_links["albums"]["pagination"]["prev_url"] %}
+                <a class="pager-link" href="{{ quick_links['albums']['pagination']['prev_url'] }}" data-ajax-page="quickfind">{{ t["page_prev"] }}</a>
+              {% else %}
+                <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
+              {% endif %}
+              <span class="pager-mini-status">{{ quick_links["albums"]["pagination"]["page"] }}/{{ quick_links["albums"]["pagination"]["total_pages"] }}</span>
+              {% if quick_links["albums"]["pagination"]["next_url"] %}
+                <a class="pager-link" href="{{ quick_links['albums']['pagination']['next_url'] }}" data-ajax-page="quickfind">{{ t["page_next"] }}</a>
+              {% else %}
+                <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
+              {% endif %}
+            </div>
           {% endif %}
         </section>
         <section class="quick-links-panel">
           <div class="panel-title">{{ t["uploaders"] }}</div>
           <div class="quick-links-content">
-            {% for item in quick_links["uploaders"][:10] %}
+            {% for item in quick_links["uploaders"]["items"] %}
               <a class="quick-link-item" href="/?uploader={{ item['uploader'] | urlencode }}&lang={{ lang }}">{{ item["uploader"] }} <span>{{ item["tracks"] }}</span></a>
             {% endfor %}
           </div>
-          {% if quick_links["uploaders"]|length > 10 %}
-          <div class="quick-links-pager">
-            <span class="quick-links-more">{{ quick_links["uploaders"]|length - 10 }} {{ t["uploaders"] }} more</span>
-          </div>
+          {% if quick_links["uploaders"]["pagination"]["total_pages"] > 1 %}
+            <div class="quick-links-pager">
+              {% if quick_links["uploaders"]["pagination"]["prev_url"] %}
+                <a class="pager-link" href="{{ quick_links['uploaders']['pagination']['prev_url'] }}" data-ajax-page="quickfind">{{ t["page_prev"] }}</a>
+              {% else %}
+                <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
+              {% endif %}
+              <span class="pager-mini-status">{{ quick_links["uploaders"]["pagination"]["page"] }}/{{ quick_links["uploaders"]["pagination"]["total_pages"] }}</span>
+              {% if quick_links["uploaders"]["pagination"]["next_url"] %}
+                <a class="pager-link" href="{{ quick_links['uploaders']['pagination']['next_url'] }}" data-ajax-page="quickfind">{{ t["page_next"] }}</a>
+              {% else %}
+                <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
+              {% endif %}
+            </div>
           {% endif %}
         </section>
       </div>
@@ -176,14 +206,15 @@
     <div class="upload-progress-percent" data-upload-progress-percent>0%</div>
   </div>
 
-  <section class="dashboard">
-    <div class="stats-strip">
-      <span><strong>{{ summary["tracks"] }}</strong> {{ t["stats_tracks"] }}</span>
-      <span><strong>{{ summary["artists"] }}</strong> {{ t["stats_artists"] }}</span>
-      <span><strong>{{ summary["albums"] }}</strong> {{ t["stats_albums"] }}</span>
-      <span><strong>{{ summary["uploaders"] }}</strong> {{ t["stats_uploaders"] }}</span>
-      <span><strong>{{ summary["music_size_label"] }}</strong> {{ t["stats_music_size"] }}</span>
-    </div>
+  <div class="viewport-shell">
+    <section class="dashboard">
+      <div class="stats-strip">
+        <span><strong>{{ summary["tracks"] }}</strong> {{ t["stats_tracks"] }}</span>
+        <span><strong>{{ summary["artists"] }}</strong> {{ t["stats_artists"] }}</span>
+        <span><strong>{{ summary["albums"] }}</strong> {{ t["stats_albums"] }}</span>
+        <span><strong>{{ summary["uploaders"] }}</strong> {{ t["stats_uploaders"] }}</span>
+        <span><strong>{{ summary["music_size_label"] }}</strong> {{ t["stats_music_size"] }}</span>
+      </div>
 
     <form
       class="upload-panel"
@@ -253,55 +284,70 @@
       </div>
     {% endif %}
 
-    <form class="filter-panel" method="get" action="/">
-      <div class="panel-title">{{ t["filters"] }}</div>
-      <div class="filter-grid">
-        <input type="hidden" name="lang" value="{{ lang }}">
-        <label>
-          <span>{{ t["find"] }}</span>
-          <input type="text" name="q" value="{{ filters['q'] }}" placeholder="{{ t['find_placeholder'] }}">
-        </label>
-        <label>
-          <span>{{ t["uploader"] }}</span>
-          <input type="text" name="uploader" value="{{ filters['uploader'] }}" placeholder="{{ t['exact_uploader'] }}">
-        </label>
-        <label>
-          <span>{{ t["artist"] }}</span>
-          <input type="text" name="artist" value="{{ filters['artist'] }}" placeholder="{{ t['exact_artist'] }}">
-        </label>
-        <label>
-          <span>{{ t["album"] }}</span>
-          <input type="text" name="album" value="{{ filters['album'] }}" placeholder="{{ t['exact_album'] }}">
-        </label>
-        <label>
-          <span>{{ t["sort"] }}</span>
-          <select name="sort">
-            {% for key in sort_keys %}
-              <option value="{{ key }}" {% if filters["sort"] == key %}selected{% endif %}>{{ sort_labels[key] }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </div>
-      <div class="filter-actions">
-        <button type="submit">{{ t["scan"] }}</button>
-        <a href="/?lang={{ lang }}">{{ t["clear"] }}</a>
-      </div>
-    </form>
-  </section>
+      <form class="filter-panel" method="get" action="/">
+        <div class="panel-title">{{ t["filters"] }}</div>
+        <div class="filter-grid">
+          <input type="hidden" name="lang" value="{{ lang }}">
+          <label>
+            <span>{{ t["find"] }}</span>
+            <input type="text" name="q" value="{{ filters['q'] }}" placeholder="{{ t['find_placeholder'] }}">
+          </label>
+          <label>
+            <span>{{ t["uploader"] }}</span>
+            <input type="text" name="uploader" value="{{ filters['uploader'] }}" placeholder="{{ t['exact_uploader'] }}">
+          </label>
+          <label>
+            <span>{{ t["artist"] }}</span>
+            <input type="text" name="artist" value="{{ filters['artist'] }}" placeholder="{{ t['exact_artist'] }}">
+          </label>
+          <label>
+            <span>{{ t["album"] }}</span>
+            <input type="text" name="album" value="{{ filters['album'] }}" placeholder="{{ t['exact_album'] }}">
+          </label>
+          <label>
+            <span>{{ t["sort"] }}</span>
+            <select name="sort">
+              {% for key in sort_keys %}
+                <option value="{{ key }}" {% if filters["sort"] == key %}selected{% endif %}>{{ sort_labels[key] }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="filter-actions">
+          <button type="submit">{{ t["scan"] }}</button>
+          <a href="/?lang={{ lang }}">{{ t["clear"] }}</a>
+        </div>
+      </form>
+    </section>
 
-  <main class="content-grid">
+    <main class="content-grid">
     <aside class="sidebar">
-      <section class="side-panel">
+      <section class="side-panel" id="artists-panel">
         <div class="panel-title">{{ t["artists"] }}</div>
-        <div class="scroll-pane scroll-pane-side">
+        <div class="side-list">
           {% for item in sidebar["artists"]["items"] %}
             <a class="side-link" href="/?artist={{ item['artist'] | urlencode }}&lang={{ lang }}">{{ item["artist"] }} <span>{{ item["tracks"] }}</span></a>
           {% endfor %}
         </div>
+        {% if sidebar["artists"]["pagination"]["total_pages"] > 1 %}
+          <div class="pager-row pager-row-side">
+            {% if sidebar["artists"]["pagination"]["prev_url"] %}
+              <a class="pager-link" href="{{ sidebar['artists']['pagination']['prev_url'] }}" data-ajax-page="viewport">{{ t["page_prev"] }}</a>
+            {% else %}
+              <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
+            {% endif %}
+            <span class="pager-mini-status">{{ sidebar["artists"]["pagination"]["page"] }}/{{ sidebar["artists"]["pagination"]["total_pages"] }}</span>
+            {% if sidebar["artists"]["pagination"]["next_url"] %}
+              <a class="pager-link" href="{{ sidebar['artists']['pagination']['next_url'] }}" data-ajax-page="viewport">{{ t["page_next"] }}</a>
+            {% else %}
+              <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
+            {% endif %}
+          </div>
+        {% endif %}
       </section>
-      <section class="side-panel">
+      <section class="side-panel" id="albums-panel">
         <div class="panel-title">{{ t["albums"] }}</div>
-        <div class="scroll-pane scroll-pane-side">
+        <div class="side-list">
           {% for item in sidebar["albums"]["items"] %}
             <a class="album-link" href="/?artist={{ item['artist'] | urlencode }}&album={{ item['album'] | urlencode }}&lang={{ lang }}">
               <img src="/covers/{{ item['cover_path'] }}" alt="{{ item['album'] }}">
@@ -312,18 +358,48 @@
             </a>
           {% endfor %}
         </div>
+        {% if sidebar["albums"]["pagination"]["total_pages"] > 1 %}
+          <div class="pager-row pager-row-side">
+            {% if sidebar["albums"]["pagination"]["prev_url"] %}
+              <a class="pager-link" href="{{ sidebar['albums']['pagination']['prev_url'] }}" data-ajax-page="viewport">{{ t["page_prev"] }}</a>
+            {% else %}
+              <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
+            {% endif %}
+            <span class="pager-mini-status">{{ sidebar["albums"]["pagination"]["page"] }}/{{ sidebar["albums"]["pagination"]["total_pages"] }}</span>
+            {% if sidebar["albums"]["pagination"]["next_url"] %}
+              <a class="pager-link" href="{{ sidebar['albums']['pagination']['next_url'] }}" data-ajax-page="viewport">{{ t["page_next"] }}</a>
+            {% else %}
+              <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
+            {% endif %}
+          </div>
+        {% endif %}
       </section>
-      <section class="side-panel">
+      <section class="side-panel" id="uploaders-panel">
         <div class="panel-title">{{ t["uploaders"] }}</div>
-        <div class="scroll-pane scroll-pane-side">
+        <div class="side-list">
           {% for item in sidebar["uploaders"]["items"] %}
             <a class="side-link" href="/?uploader={{ item['uploader'] | urlencode }}&lang={{ lang }}">{{ item["uploader"] }} <span>{{ item["tracks"] }}</span></a>
           {% endfor %}
         </div>
+        {% if sidebar["uploaders"]["pagination"]["total_pages"] > 1 %}
+          <div class="pager-row pager-row-side">
+            {% if sidebar["uploaders"]["pagination"]["prev_url"] %}
+              <a class="pager-link" href="{{ sidebar['uploaders']['pagination']['prev_url'] }}" data-ajax-page="viewport">{{ t["page_prev"] }}</a>
+            {% else %}
+              <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
+            {% endif %}
+            <span class="pager-mini-status">{{ sidebar["uploaders"]["pagination"]["page"] }}/{{ sidebar["uploaders"]["pagination"]["total_pages"] }}</span>
+            {% if sidebar["uploaders"]["pagination"]["next_url"] %}
+              <a class="pager-link" href="{{ sidebar['uploaders']['pagination']['next_url'] }}" data-ajax-page="viewport">{{ t["page_next"] }}</a>
+            {% else %}
+              <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
+            {% endif %}
+          </div>
+        {% endif %}
       </section>
     </aside>
 
-    <section class="table-wrap">
+      <section class="table-wrap" id="tracks-panel">
       <div class="table-toolbar">
         <div class="selection-tools">
           <button type="button" class="mini-button" data-download-selected data-base-label="{{ t['download_many_flac'] }}" data-download-limit-message="{{ t['download_many_limit'] }}">{{ t["download_many_flac"] }}</button>
@@ -405,6 +481,21 @@
           </tbody>
         </table>
       </div>
+      {% if track_pagination["total_pages"] > 1 %}
+        <div class="pager-row pager-row-tracks">
+          {% if track_pagination["prev_url"] %}
+            <a class="pager-button pager-button-track" href="{{ track_pagination['prev_url'] }}" data-ajax-page="viewport">{{ t["page_prev"] }}</a>
+          {% else %}
+            <span class="pager-button pager-button-track is-disabled">{{ t["page_prev"] }}</span>
+          {% endif %}
+          <span class="pager-status">{{ t["page_label"] }} {{ track_pagination["page"] }}/{{ track_pagination["total_pages"] }}</span>
+          {% if track_pagination["next_url"] %}
+            <a class="pager-button pager-button-track" href="{{ track_pagination['next_url'] }}" data-ajax-page="viewport">{{ t["page_next"] }}</a>
+          {% else %}
+            <span class="pager-button pager-button-track is-disabled">{{ t["page_next"] }}</span>
+          {% endif %}
+        </div>
+      {% endif %}
       <div class="mobile-track-list">
         {% for track in tracks %}
           <article class="mobile-track-card">
@@ -463,9 +554,10 @@
           <div class="empty-row">{{ t["empty_index"] }}</div>
         {% endfor %}
       </div>
-      <div class="scroll-hint">{{ tracks|length }} items</div>
-    </section>
-  </main>
+      <div class="scroll-hint">{{ track_pagination["total_items"] }} items</div>
+      </section>
+    </main>
+  </div>
 
   <div class="mobile-selection-dock" data-mobile-selection-dock>
     <span class="mobile-selection-count" data-mobile-selection-count>0</span>

@@ -12,6 +12,7 @@
     <script defer src="/static/app.js"></script>
   </head>
   <body
+    class="{% if page_kind %}page-{{ page_kind }}{% endif %}"
     data-auth-open="{{ '1' if auth_open else '0' }}"
     data-auth-mode="{{ auth_mode }}"
     data-user-authenticated="{{ '1' if current_user else '0' }}"

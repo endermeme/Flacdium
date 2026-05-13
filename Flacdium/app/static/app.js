@@ -11,22 +11,10 @@ const playerAudio = document.querySelector("[data-player-audio]");
 const playerHeading = document.querySelector("[data-player-heading]");
 const playerMeta = document.querySelector("[data-player-meta]");
 const guestPopup = document.querySelector("[data-guest-popup]");
-const uploadForm = document.querySelector("[data-upload-form]");
-const uploadSubmit = document.querySelector("[data-upload-submit]");
 const uploadProgress = document.querySelector("[data-upload-progress]");
 const uploadProgressText = document.querySelector("[data-upload-progress-text]");
 const uploadProgressFill = document.querySelector("[data-upload-progress-fill]");
 const uploadProgressPercent = document.querySelector("[data-upload-progress-percent]");
-const uploadBatchField = document.querySelector("[data-upload-batch-id]");
-const uploadFilesInput = uploadForm ? uploadForm.querySelector('input[name="files"]') : null;
-const uploadZipInput = uploadForm ? uploadForm.querySelector('input[name="zip_file"]') : null;
-const rightsCheckbox = uploadForm ? uploadForm.querySelector('input[name="rights_confirmed"]') : null;
-const csrfField = uploadForm ? uploadForm.querySelector('input[name="csrf_token"]') : null;
-const downloadSelectedButtons = Array.from(document.querySelectorAll("[data-download-selected]"));
-const downloadZipButtons = Array.from(document.querySelectorAll("[data-download-zip]"));
-const trackSelectBoxes = Array.from(document.querySelectorAll("[data-track-select]"));
-const mobileSelectionDock = document.querySelector("[data-mobile-selection-dock]");
-const mobileSelectionCount = document.querySelector("[data-mobile-selection-count]");
 const nextFields = Array.from(document.querySelectorAll("[data-next-field]"));
 const authTabs = Array.from(document.querySelectorAll("[data-auth-tab]"));
 const authForms = Array.from(document.querySelectorAll("[data-auth-form]"));
@@ -42,19 +30,38 @@ function parseNullableInt(value) {
 const userBundleTrackLimit = parseNullableInt(body.dataset.userBundleTrackLimit);
 const userUploadFileLimit = parseNullableInt(body.dataset.userUploadFileLimit);
 const userUploadZipLimit = parseNullableInt(body.dataset.userUploadZipLimit);
-const trackSelectGroups = new Map();
 
-[...downloadSelectedButtons, ...downloadZipButtons].forEach((button) => {
-  if (!button.dataset.baseLabel) {
-    button.dataset.baseLabel = button.textContent.trim();
-  }
-});
+function currentTrackSelectBoxes() {
+  return Array.from(document.querySelectorAll("[data-track-select]"));
+}
 
-trackSelectBoxes.forEach((box) => {
-  const group = trackSelectGroups.get(box.value) || [];
-  group.push(box);
-  trackSelectGroups.set(box.value, group);
-});
+function currentDownloadSelectedButtons() {
+  return Array.from(document.querySelectorAll("[data-download-selected]"));
+}
+
+function currentDownloadZipButtons() {
+  return Array.from(document.querySelectorAll("[data-download-zip]"));
+}
+
+function currentMobileSelectionDock() {
+  return document.querySelector("[data-mobile-selection-dock]");
+}
+
+function currentMobileSelectionCount() {
+  return document.querySelector("[data-mobile-selection-count]");
+}
+
+function currentUploadForm() {
+  return document.querySelector("[data-upload-form]");
+}
+
+function primeSelectionLabels(root = document) {
+  root.querySelectorAll("[data-download-selected], [data-download-zip]").forEach((button) => {
+    if (!button.dataset.baseLabel) {
+      button.dataset.baseLabel = button.textContent.trim();
+    }
+  });
+}
 
 function setNextTarget(target) {
   nextFields.forEach((input) => {
@@ -199,12 +206,12 @@ function generateBatchId() {
 }
 
 function selectedTrackIds() {
-  return Array.from(new Set(trackSelectBoxes.filter((box) => box.checked).map((box) => box.value)));
+  return Array.from(new Set(currentTrackSelectBoxes().filter((box) => box.checked).map((box) => box.value)));
 }
 
 function syncTrackSelection(trackId, checked, sourceBox) {
-  (trackSelectGroups.get(trackId) || []).forEach((box) => {
-    if (box !== sourceBox) {
+  currentTrackSelectBoxes().forEach((box) => {
+    if (box !== sourceBox && box.value === trackId) {
       box.checked = checked;
     }
   });
@@ -213,16 +220,18 @@ function syncTrackSelection(trackId, checked, sourceBox) {
 function syncSelectionButtons() {
   const selectedCount = selectedTrackIds().length;
   const hasSelection = selectedCount > 0;
-  [...downloadSelectedButtons, ...downloadZipButtons].forEach((button) => {
+  [...currentDownloadSelectedButtons(), ...currentDownloadZipButtons()].forEach((button) => {
     if (!button) return;
     button.disabled = !hasSelection;
     button.classList.toggle("is-ready", hasSelection);
     const label = button.dataset.baseLabel || button.textContent.trim();
     button.textContent = hasSelection ? `${label} (${selectedCount})` : label;
   });
+  const mobileSelectionDock = currentMobileSelectionDock();
   if (mobileSelectionDock) {
     mobileSelectionDock.classList.toggle("is-active", hasSelection);
   }
+  const mobileSelectionCount = currentMobileSelectionCount();
   if (mobileSelectionCount) {
     mobileSelectionCount.textContent = String(selectedCount);
   }
@@ -292,63 +301,192 @@ function pollUploadStatus(statusUrl, resultUrl, processingText, errorText) {
   poll();
 }
 
-document.querySelectorAll("[data-open-auth]").forEach((button) => {
-  button.addEventListener("click", () => openAuth("login"));
-});
+function replaceViewportFromHtml(html, href) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const nextViewport = doc.querySelector(".viewport-shell");
+  const currentViewport = document.querySelector(".viewport-shell");
+  if (!nextViewport || !currentViewport) return false;
+  currentViewport.replaceWith(nextViewport);
+  primeSelectionLabels(nextViewport);
+  syncSelectionButtons();
+  window.history.replaceState({}, "", href);
+  return true;
+}
 
-document.querySelectorAll("[data-close-auth]").forEach((button) => {
-  button.addEventListener("click", closeAuth);
-});
+function replaceQuickfindFromHtml(html, href) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const nextCard = doc.querySelector("[data-quickfind-overlay] .quickfind-card");
+  const currentCard = document.querySelector("[data-quickfind-overlay] .quickfind-card");
+  if (!nextCard || !currentCard) return false;
+  currentCard.replaceWith(nextCard);
+  window.history.replaceState({}, "", href);
+  openQuickfind();
+  return true;
+}
 
-document.querySelectorAll("[data-open-quickfind]").forEach((button) => {
-  button.addEventListener("click", openQuickfind);
-});
-
-document.querySelectorAll("[data-close-quickfind]").forEach((button) => {
-  button.addEventListener("click", closeQuickfind);
-});
-
-document.querySelectorAll("[data-open-spectrum]").forEach((button) => {
-  button.addEventListener("click", () => openSpectrum(button));
-});
-
-document.querySelectorAll("[data-close-spectrum]").forEach((button) => {
-  button.addEventListener("click", closeSpectrum);
-});
-
-document.querySelectorAll("[data-open-player]").forEach((button) => {
-  button.addEventListener("click", () => openPlayer(button));
-});
-
-document.querySelectorAll("[data-close-player]").forEach((button) => {
-  button.addEventListener("click", closePlayer);
-});
-
-document.querySelectorAll("[data-hide-guest]").forEach((button) => {
-  button.addEventListener("click", () => {
-    if (guestPopup) guestPopup.style.display = "none";
-  });
-});
+function fetchPagerContent(link) {
+  const href = link.getAttribute("href");
+  if (!href) return;
+  const mode = link.dataset.ajaxPage || "viewport";
+  fetch(href, {
+    headers: {
+      "X-Requested-With": "XMLHttpRequest",
+    },
+    credentials: "same-origin",
+  })
+    .then((response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.text();
+    })
+    .then((html) => {
+      const replaced = mode === "quickfind"
+        ? replaceQuickfindFromHtml(html, href)
+        : replaceViewportFromHtml(html, href);
+      if (!replaced) {
+        window.location.href = href;
+      }
+    })
+    .catch(() => {
+      window.location.href = href;
+    });
+}
 
 authTabs.forEach((tab) => {
   tab.addEventListener("click", () => openAuth(tab.dataset.authTab || "login"));
 });
 
-document.querySelectorAll("[data-requires-auth]").forEach((node) => {
-  node.addEventListener("click", (event) => {
-    if (body.dataset.userAuthenticated === "1") return;
+document.addEventListener("click", (event) => {
+  const openAuthButton = event.target.closest("[data-open-auth]");
+  if (openAuthButton) {
+    event.preventDefault();
+    openAuth("login");
+    return;
+  }
+
+  const closeAuthButton = event.target.closest("[data-close-auth]");
+  if (closeAuthButton) {
+    event.preventDefault();
+    closeAuth();
+    return;
+  }
+
+  const openQuickfindButton = event.target.closest("[data-open-quickfind]");
+  if (openQuickfindButton) {
+    event.preventDefault();
+    openQuickfind();
+    return;
+  }
+
+  const closeQuickfindButton = event.target.closest("[data-close-quickfind]");
+  if (closeQuickfindButton) {
+    event.preventDefault();
+    closeQuickfind();
+    return;
+  }
+
+  const openSpectrumButton = event.target.closest("[data-open-spectrum]");
+  if (openSpectrumButton) {
+    event.preventDefault();
+    openSpectrum(openSpectrumButton);
+    return;
+  }
+
+  const closeSpectrumButton = event.target.closest("[data-close-spectrum]");
+  if (closeSpectrumButton) {
+    event.preventDefault();
+    closeSpectrum();
+    return;
+  }
+
+  const openPlayerButton = event.target.closest("[data-open-player]");
+  if (openPlayerButton) {
+    event.preventDefault();
+    openPlayer(openPlayerButton);
+    return;
+  }
+
+  const closePlayerButton = event.target.closest("[data-close-player]");
+  if (closePlayerButton) {
+    event.preventDefault();
+    closePlayer();
+    return;
+  }
+
+  const hideGuestButton = event.target.closest("[data-hide-guest]");
+  if (hideGuestButton) {
+    event.preventDefault();
+    const guestPopup = document.querySelector("[data-guest-popup]");
+    if (guestPopup) guestPopup.style.display = "none";
+    return;
+  }
+
+  const requiresAuthNode = event.target.closest("[data-requires-auth]");
+  if (requiresAuthNode && body.dataset.userAuthenticated !== "1") {
     event.preventDefault();
     openAuth("login", window.location.pathname + window.location.search);
-  });
+    return;
+  }
+
+  const pagerLink = event.target.closest("[data-ajax-page]");
+  if (pagerLink) {
+    event.preventDefault();
+    fetchPagerContent(pagerLink);
+    return;
+  }
+
+  const downloadSelectedButton = event.target.closest("[data-download-selected]");
+  if (downloadSelectedButton) {
+    event.preventDefault();
+    const ids = selectedTrackIds();
+    if (ids.length === 0) return;
+    if (body.dataset.userAuthenticated !== "1") {
+      openAuth("login");
+      return;
+    }
+    if (userBundleTrackLimit !== null && ids.length > userBundleTrackLimit) {
+      window.alert(downloadSelectedButton.dataset.downloadLimitMessage || `Max ${userBundleTrackLimit} files.`);
+      return;
+    }
+    ids.forEach((trackId, index) => {
+      window.setTimeout(() => {
+        const link = document.createElement("a");
+        link.href = `/download/${trackId}`;
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }, index * 650);
+    });
+    return;
+  }
+
+  const downloadZipButton = event.target.closest("[data-download-zip]");
+  if (downloadZipButton) {
+    event.preventDefault();
+    const ids = selectedTrackIds();
+    if (ids.length === 0) return;
+    if (body.dataset.userAuthenticated !== "1") {
+      openAuth("login");
+      return;
+    }
+    if (userBundleTrackLimit !== null && ids.length > userBundleTrackLimit) {
+      window.alert(downloadZipButton.dataset.downloadLimitMessage || `Max ${userBundleTrackLimit} tracks.`);
+      return;
+    }
+    window.location.href = `/download-bundle?ids=${encodeURIComponent(ids.join(","))}`;
+  }
 });
 
-trackSelectBoxes.forEach((box) => {
-  box.addEventListener("change", () => {
-    syncTrackSelection(box.value, box.checked, box);
-    syncSelectionButtons();
-  });
+document.addEventListener("change", (event) => {
+  const box = event.target.closest("[data-track-select]");
+  if (!box) return;
+  syncTrackSelection(box.value, box.checked, box);
+  syncSelectionButtons();
 });
 
+primeSelectionLabels();
 syncSelectionButtons();
 
 document.querySelectorAll("[data-bulk-form]").forEach((form) => {
@@ -405,12 +543,21 @@ if (body.dataset.authOpen === "1") {
   });
 });
 
-if (uploadForm && window.XMLHttpRequest && window.FormData) {
-  uploadForm.addEventListener("submit", (event) => {
+if (window.XMLHttpRequest && window.FormData) {
+  document.addEventListener("submit", (event) => {
+    const uploadForm = event.target.closest("[data-upload-form]");
+    if (!uploadForm) return;
     if (uploadInFlight) {
       event.preventDefault();
       return;
     }
+
+    const uploadSubmit = uploadForm.querySelector("[data-upload-submit]");
+    const uploadBatchField = uploadForm.querySelector("[data-upload-batch-id]");
+    const uploadFilesInput = uploadForm.querySelector('input[name="files"]');
+    const uploadZipInput = uploadForm.querySelector('input[name="zip_file"]');
+    const rightsCheckbox = uploadForm.querySelector('input[name="rights_confirmed"]');
+    const csrfField = uploadForm.querySelector('input[name="csrf_token"]');
 
     const directFiles = uploadFilesInput && uploadFilesInput.files ? Array.from(uploadFilesInput.files).filter((file) => file && file.name) : [];
     const zipFiles = uploadZipInput && uploadZipInput.files ? Array.from(uploadZipInput.files).filter((file) => file && file.name) : [];
@@ -590,44 +737,3 @@ if (uploadForm && window.XMLHttpRequest && window.FormData) {
 } else {
   hideUploadProgress();
 }
-
-downloadSelectedButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    const ids = selectedTrackIds();
-    if (ids.length === 0) return;
-    if (body.dataset.userAuthenticated !== "1") {
-      openAuth("login");
-      return;
-    }
-    if (userBundleTrackLimit !== null && ids.length > userBundleTrackLimit) {
-      window.alert(button.dataset.downloadLimitMessage || `Max ${userBundleTrackLimit} files.`);
-      return;
-    }
-    ids.forEach((trackId, index) => {
-      window.setTimeout(() => {
-        const link = document.createElement("a");
-        link.href = `/download/${trackId}`;
-        link.style.display = "none";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      }, index * 650);
-    });
-  });
-});
-
-downloadZipButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    const ids = selectedTrackIds();
-    if (ids.length === 0) return;
-    if (body.dataset.userAuthenticated !== "1") {
-      openAuth("login");
-      return;
-    }
-    if (userBundleTrackLimit !== null && ids.length > userBundleTrackLimit) {
-      window.alert(button.dataset.downloadLimitMessage || `Max ${userBundleTrackLimit} tracks.`);
-      return;
-    }
-    window.location.href = `/download-bundle?ids=${encodeURIComponent(ids.join(","))}`;
-  });
-});
