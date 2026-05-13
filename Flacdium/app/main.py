@@ -37,6 +37,14 @@ SPECTRUM_DIR = TMP_DIR / "spectrum"
 BATCH_DIR = TMP_DIR / "upload_batches"
 UPLOAD_STATUS_DIR = TMP_DIR / "upload_status"
 DB_PATH = DATA_DIR / "flacdium.sqlite3"
+STATIC_ASSET_VERSION = str(
+    max(
+        int((APP_DIR / "static" / "styles.css").stat().st_mtime),
+        int((APP_DIR / "static" / "app.js").stat().st_mtime),
+        int((APP_DIR / "static" / "brand-tree.jpg").stat().st_mtime),
+        int((APP_DIR / "static" / "header-blossom.jpg").stat().st_mtime),
+    )
+)
 
 for folder in (
     DATA_DIR,
@@ -653,6 +661,7 @@ app = FastAPI(title="Flacdium")
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 app.mount("/covers", StaticFiles(directory=str(COVERS_DIR)), name="covers")
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
+templates.env.globals["asset_version"] = STATIC_ASSET_VERSION
 
 
 @app.middleware("http")
