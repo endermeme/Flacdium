@@ -986,6 +986,10 @@ select:disabled {
   overflow: hidden;
 }
 
+.mobile-track-list {
+  display: none;
+}
+
 .mobile-selection-dock {
   display: none;
 }
