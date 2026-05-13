@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -739,6 +740,12 @@ def init_db() -> None:
         ensure_column(connection, "tracks", "ingest_note", "ingest_note TEXT DEFAULT ''")
         ensure_column(connection, "tracks", "blob_path", "blob_path TEXT DEFAULT ''")
         ensure_column(connection, "tracks", "audio_fingerprint", "audio_fingerprint TEXT DEFAULT ''")
+        ensure_column(connection, "tracks", "artist_norm", "artist_norm TEXT DEFAULT ''")
+        ensure_column(connection, "tracks", "album_norm", "album_norm TEXT DEFAULT ''")
+        ensure_column(connection, "tracks", "title_norm", "title_norm TEXT DEFAULT ''")
+        ensure_column(connection, "tracks", "genre_norm", "genre_norm TEXT DEFAULT ''")
+        ensure_column(connection, "tracks", "uploader_norm", "uploader_norm TEXT DEFAULT ''")
+        ensure_column(connection, "tracks", "search_blob_norm", "search_blob_norm TEXT DEFAULT ''")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -786,12 +793,14 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS track_uploaders (
                 track_id INTEGER NOT NULL,
                 username TEXT NOT NULL,
+                username_norm TEXT NOT NULL DEFAULT '',
                 added_at TEXT NOT NULL,
                 PRIMARY KEY (track_id, username),
                 FOREIGN KEY(track_id) REFERENCES tracks(id)
             )
             """
         )
+        ensure_column(connection, "track_uploaders", "username_norm", "username_norm TEXT NOT NULL DEFAULT ''")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS review_items (
@@ -859,6 +868,82 @@ def init_db() -> None:
             SELECT id, uploader, uploaded_at FROM tracks
             """
         )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_tracks_artist_norm
+            ON tracks (artist_norm)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_tracks_album_norm
+            ON tracks (album_norm)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_tracks_uploader_norm
+            ON tracks (uploader_norm)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_track_uploaders_username_norm
+            ON track_uploaders (username_norm, added_at DESC)
+            """
+        )
+        rows = connection.execute(
+            "SELECT id, artist, album, title, genre, uploader FROM tracks"
+        ).fetchall()
+        for row in rows:
+            connection.execute(
+                """
+                UPDATE tracks
+                SET
+                    artist_norm = ?,
+                    album_norm = ?,
+                    title_norm = ?,
+                    genre_norm = ?,
+                    uploader_norm = ?,
+                    search_blob_norm = ?
+                WHERE id = ?
+                """,
+                (
+                    normalize_search_value(str(row["artist"] or "")),
+                    normalize_search_value(str(row["album"] or "")),
+                    normalize_search_value(str(row["title"] or "")),
+                    normalize_search_value(str(row["genre"] or "")),
+                    normalize_search_value(str(row["uploader"] or "")),
+                    normalize_search_value(
+                        " ".join(
+                            [
+                                str(row["title"] or ""),
+                                str(row["artist"] or ""),
+                                str(row["album"] or ""),
+                                str(row["genre"] or ""),
+                            ]
+                        )
+                    ),
+                    row["id"],
+                ),
+            )
+        uploader_rows = connection.execute(
+            "SELECT track_id, username, added_at FROM track_uploaders"
+        ).fetchall()
+        for row in uploader_rows:
+            connection.execute(
+                """
+                UPDATE track_uploaders
+                SET username_norm = ?
+                WHERE track_id = ? AND username = ? AND added_at = ?
+                """,
+                (
+                    normalize_search_value(str(row["username"] or "")),
+                    row["track_id"],
+                    row["username"],
+                    row["added_at"],
+                ),
+            )
 
 
 def validate_security_config() -> None:
@@ -938,6 +1023,14 @@ def safe_segment(value: str) -> str:
 
 def normalize_slot_value(value: str) -> str:
     return re.sub(r"\s+", " ", (value or "").strip().lower())
+
+
+def normalize_search_value(value: str) -> str:
+    raw = unicodedata.normalize("NFKD", (value or "").strip().lower())
+    without_marks = "".join(char for char in raw if not unicodedata.combining(char))
+    without_marks = without_marks.replace("đ", "d")
+    collapsed = re.sub(r"\s+", " ", without_marks)
+    return collapsed.strip()
 
 
 def hash_bytes(raw: bytes) -> str:
@@ -1626,10 +1719,10 @@ def ensure_track_uploader_credit(
 ) -> None:
     connection.execute(
         """
-        INSERT OR IGNORE INTO track_uploaders (track_id, username, added_at)
-        VALUES (?, ?, ?)
+        INSERT OR IGNORE INTO track_uploaders (track_id, username, username_norm, added_at)
+        VALUES (?, ?, ?, ?)
         """,
-        (track_id, username, added_at),
+        (track_id, username, normalize_search_value(username), added_at),
     )
 
 
@@ -2079,8 +2172,9 @@ def save_track_record(
                 uploader, original_filename, stored_path, cover_path, artist, album, title,
                 album_artist, genre, release_date, year, track_number, disc_number,
                 duration_seconds, sample_rate, bit_depth, channels, file_size, uploaded_at,
-                file_hash, cover_hash, ingest_note, blob_path, audio_fingerprint
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                file_hash, cover_hash, ingest_note, blob_path, audio_fingerprint,
+                artist_norm, album_norm, title_norm, genre_norm, uploader_norm, search_blob_norm
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 uploader,
@@ -2107,6 +2201,14 @@ def save_track_record(
                 ingest_note,
                 blob_path,
                 meta["audio_fingerprint"],
+                normalize_search_value(meta["artist"]),
+                normalize_search_value(meta["album"]),
+                normalize_search_value(meta["title"]),
+                normalize_search_value(meta["genre"]),
+                normalize_search_value(uploader),
+                normalize_search_value(
+                    " ".join([meta["title"], meta["artist"], meta["album"], meta["genre"] or ""])
+                ),
             ),
         )
         track_id = int(cursor.lastrowid)
@@ -2179,7 +2281,8 @@ def merge_existing_track(
                     artist = ?, album = ?, title = ?, album_artist = ?, genre = ?, release_date = ?,
                     year = ?, track_number = ?, disc_number = ?, duration_seconds = ?, sample_rate = ?,
                     bit_depth = ?, channels = ?, file_size = ?, uploaded_at = ?, file_hash = ?,
-                    cover_hash = ?, ingest_note = ?, audio_fingerprint = ?
+                    cover_hash = ?, ingest_note = ?, audio_fingerprint = ?, artist_norm = ?,
+                    album_norm = ?, title_norm = ?, genre_norm = ?, uploader_norm = ?, search_blob_norm = ?
                 WHERE id = ?
                 """,
                 (
@@ -2207,6 +2310,14 @@ def merge_existing_track(
                     meta["cover_hash"],
                     "replaced_by_newer_upload",
                     meta["audio_fingerprint"],
+                    normalize_search_value(meta["artist"]),
+                    normalize_search_value(meta["album"]),
+                    normalize_search_value(meta["title"]),
+                    normalize_search_value(meta["genre"]),
+                    normalize_search_value(uploader),
+                    normalize_search_value(
+                        " ".join([meta["title"], meta["artist"], meta["album"], meta["genre"] or ""])
+                    ),
                     existing_track["id"],
                 ),
             )
@@ -2218,7 +2329,7 @@ def merge_existing_track(
         connection.execute(
             """
             UPDATE tracks
-            SET uploader = ?, original_filename = ?, uploaded_at = ?, ingest_note = ?
+            SET uploader = ?, original_filename = ?, uploaded_at = ?, ingest_note = ?, uploader_norm = ?
             WHERE id = ?
             """,
             (
@@ -2226,6 +2337,7 @@ def merge_existing_track(
                 original_filename,
                 uploaded_at,
                 duplicate_reason,
+                normalize_search_value(uploader),
                 existing_track["id"],
             ),
         )
@@ -3065,9 +3177,13 @@ def fetch_tracks(
     lang: str,
 ) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, Any]]:
     q = (request.query_params.get("q") or "").strip()
+    q_norm = normalize_search_value(q)
     uploader = (request.query_params.get("uploader") or "").strip()
+    uploader_norm = normalize_search_value(uploader)
     artist = (request.query_params.get("artist") or "").strip()
+    artist_norm = normalize_search_value(artist)
     album = (request.query_params.get("album") or "").strip()
+    album_norm = normalize_search_value(album)
     sort = request.query_params.get("sort") or "newest"
     tracks_page = parse_page(request.query_params.get("tracks_page"))
     order_by = SORTS.get(sort, SORTS["newest"])
@@ -3075,22 +3191,21 @@ def fetch_tracks(
     sql = "FROM tracks WHERE 1=1"
     params: list[Any] = []
 
-    if q:
-        sql += " AND (title LIKE ? OR artist LIKE ? OR album LIKE ? OR genre LIKE ?)"
-        token = f"%{q}%"
-        params.extend([token, token, token, token])
+    if q_norm:
+        sql += " AND search_blob_norm LIKE ?"
+        params.append(f"%{q_norm}%")
     if uploader:
         if table_exists(connection, "track_uploaders"):
-            sql += " AND EXISTS (SELECT 1 FROM track_uploaders tu WHERE tu.track_id = tracks.id AND tu.username = ?)"
+            sql += " AND EXISTS (SELECT 1 FROM track_uploaders tu WHERE tu.track_id = tracks.id AND tu.username_norm LIKE ?)"
         else:
-            sql += " AND uploader = ?"
-        params.append(uploader)
-    if artist:
-        sql += " AND artist LIKE ?"
-        params.append(f"%{artist}%")
-    if album:
-        sql += " AND album LIKE ?"
-        params.append(f"%{album}%")
+            sql += " AND uploader_norm LIKE ?"
+        params.append(f"%{uploader_norm}%")
+    if artist_norm:
+        sql += " AND artist_norm LIKE ?"
+        params.append(f"%{artist_norm}%")
+    if album_norm:
+        sql += " AND album_norm LIKE ?"
+        params.append(f"%{album_norm}%")
 
     filters = {
         "q": q,
@@ -3351,20 +3466,21 @@ def fetch_admin_tracks(
     lang: str,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     q = (request.query_params.get("track_q") or "").strip()
+    q_norm = normalize_search_value(q)
     uploader = (request.query_params.get("track_uploader") or "").strip()
+    uploader_norm = normalize_search_value(uploader)
     sql = "FROM tracks WHERE 1=1"
     params: list[Any] = []
 
-    if q:
-        token = f"%{q}%"
-        sql += " AND (title LIKE ? OR artist LIKE ? OR album LIKE ? OR original_filename LIKE ?)"
-        params.extend([token, token, token, token])
+    if q_norm:
+        sql += " AND (search_blob_norm LIKE ? OR lower(original_filename) LIKE ?)"
+        params.extend([f"%{q_norm}%", f"%{q.lower()}%"])
     if uploader:
         if table_exists(connection, "track_uploaders"):
-            sql += " AND EXISTS (SELECT 1 FROM track_uploaders tu WHERE tu.track_id = tracks.id AND tu.username = ?)"
+            sql += " AND EXISTS (SELECT 1 FROM track_uploaders tu WHERE tu.track_id = tracks.id AND tu.username_norm LIKE ?)"
         else:
-            sql += " AND uploader = ?"
-        params.append(uploader)
+            sql += " AND uploader_norm LIKE ?"
+        params.append(f"%{uploader_norm}%")
 
     rows = connection.execute(
         f"SELECT * {sql} ORDER BY uploaded_at DESC, id DESC LIMIT 500",
