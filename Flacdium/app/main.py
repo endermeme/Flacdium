@@ -165,6 +165,7 @@ ARTISTS_PAGE_SIZE = 5
 ALBUMS_PAGE_SIZE = 6
 UPLOADERS_PAGE_SIZE = 4
 LOGIN_LOGS_PER_PAGE = 40
+ADMIN_LOGS_MAX_ROWS = env_int("FLACDIUM_ADMIN_LOGS_MAX_ROWS", 1000)
 MAX_BUNDLE_TRACKS = 100
 USER_MAX_BUNDLE_TRACKS = env_int("FLACDIUM_USER_MAX_BUNDLE_TRACKS", 50)
 SORTS = {
@@ -3505,7 +3506,6 @@ def fetch_admin_summary(connection: sqlite3.Connection) -> dict[str, int]:
 
 def fetch_admin_logs(connection: sqlite3.Connection, request: Request) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     t = text_for(get_lang(request))
-    logs_page = parse_page(request.query_params.get("logs_page"))
     user_filter = (request.query_params.get("log_user") or "").strip()
     date_from = (request.query_params.get("date_from") or "").strip()
     date_to = (request.query_params.get("date_to") or "").strip()
@@ -3530,16 +3530,14 @@ def fetch_admin_logs(connection: sqlite3.Connection, request: Request) -> tuple[
         sql += " AND login_logs.created_at <= ?"
         params.append(f"{date_to}T23:59:59.999999")
 
-    total_logs = connection.execute(f"SELECT COUNT(*) AS total {sql}", params).fetchone()["total"]
-    pagination = build_pagination(request, "logs_page", logs_page, total_logs, LOGIN_LOGS_PER_PAGE)
     rows = connection.execute(
         f"""
         SELECT login_logs.*, users.username AS current_username
         {sql}
         ORDER BY {order_by}
-        LIMIT ? OFFSET ?
+        LIMIT ?
         """,
-        (*params, LOGIN_LOGS_PER_PAGE, (pagination["page"] - 1) * LOGIN_LOGS_PER_PAGE),
+        (*params, ADMIN_LOGS_MAX_ROWS),
     ).fetchall()
     logs: list[dict[str, Any]] = []
     for row in rows:
@@ -3557,7 +3555,14 @@ def fetch_admin_logs(connection: sqlite3.Connection, request: Request) -> tuple[
         "date_to": date_to,
         "log_sort": sort,
     }
-    pagination["filters"] = filters
+    pagination = {
+        "total_items": len(logs),
+        "page": 1,
+        "total_pages": 1,
+        "prev_url": "",
+        "next_url": "",
+        "filters": filters,
+    }
     return logs, pagination
 
 
@@ -3626,6 +3631,10 @@ def fetch_admin_reviews(connection: sqlite3.Connection, lang: str) -> list[dict[
 
 def normalize_admin_tab(raw_value: str | None) -> str:
     return raw_value if raw_value in {"accounts", "sessions", "tracks", "reviews"} else "accounts"
+
+
+def admin_anchor(tab: str) -> str:
+    return f"#admin-{normalize_admin_tab(tab)}"
 
 
 def render_admin(request: Request, notice: str = "", status_code: int = 200) -> HTMLResponse:
@@ -4388,6 +4397,10 @@ def admin_form_tab(form: Any, default: str) -> str:
     return normalize_admin_tab(str(form.get("tab", default)))
 
 
+def admin_redirect_target(lang: str, tab: str) -> str:
+    return f"/admin?lang={lang}&tab={normalize_admin_tab(tab)}"
+
+
 def selected_ids_from_form(form: Any, field_name: str) -> list[int]:
     values = form.getlist(field_name) if hasattr(form, "getlist") else []
     selected: list[int] = []
@@ -4573,7 +4586,7 @@ async def admin_toggle_user(request: Request, user_id: int) -> RedirectResponse:
             "UPDATE users SET is_active = ? WHERE id = ?",
             (0 if target_user["is_active"] else 1, user_id),
         )
-    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
+    response = RedirectResponse(admin_redirect_target(lang, tab), status_code=303)
     set_lang_cookie(request, response, lang)
     return response
 
@@ -4588,7 +4601,7 @@ async def admin_bulk_users(request: Request) -> RedirectResponse:
     action = str(form.get("action", "")).strip()
     user_ids = selected_ids_from_form(form, "user_ids")
     if action not in {"enable", "disable"} or not user_ids:
-        response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
+        response = RedirectResponse(admin_redirect_target(lang, tab), status_code=303)
         set_lang_cookie(request, response, lang)
         return response
     with get_db() as connection:
@@ -4602,7 +4615,7 @@ async def admin_bulk_users(request: Request) -> RedirectResponse:
                 "UPDATE users SET is_active = ? WHERE id = ?",
                 (1 if action == "enable" else 0, user_id),
             )
-    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
+    response = RedirectResponse(admin_redirect_target(lang, tab), status_code=303)
     set_lang_cookie(request, response, lang)
     return response
 
@@ -4619,7 +4632,7 @@ async def admin_bulk_logs(request: Request) -> RedirectResponse:
         with get_db() as connection:
             placeholders = ",".join("?" for _ in log_ids)
             connection.execute(f"DELETE FROM login_logs WHERE id IN ({placeholders})", log_ids)
-    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
+    response = RedirectResponse(admin_redirect_target(lang, tab), status_code=303)
     set_lang_cookie(request, response, lang)
     return response
 
@@ -4635,7 +4648,7 @@ async def admin_bulk_delete_tracks(request: Request) -> RedirectResponse:
     if track_ids:
         with get_db() as connection:
             delete_tracks_by_ids(connection, track_ids)
-    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
+    response = RedirectResponse(admin_redirect_target(lang, tab), status_code=303)
     set_lang_cookie(request, response, lang)
     return response
 
@@ -4732,7 +4745,7 @@ async def admin_approve_review(request: Request, review_id: int) -> RedirectResp
     if review_item["status"] != "pending":
         raise HTTPException(status_code=400, detail="review item already handled")
     approve_review_item(review_item, admin_user["username"])
-    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
+    response = RedirectResponse(admin_redirect_target(lang, tab), status_code=303)
     set_lang_cookie(request, response, lang)
     return response
 
@@ -4764,7 +4777,7 @@ async def admin_reject_review(request: Request, review_id: int) -> RedirectRespo
     candidate_path = REVIEW_DIR / str(review_item["candidate_path"] or "")
     candidate_path.unlink(missing_ok=True)
     cleanup_review_spectrum_cache(review_id)
-    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
+    response = RedirectResponse(admin_redirect_target(lang, tab), status_code=303)
     set_lang_cookie(request, response, lang)
     return response
 
@@ -4805,7 +4818,7 @@ async def admin_bulk_reviews(request: Request) -> RedirectResponse:
                 candidate_path = REVIEW_DIR / str(review_item["candidate_path"] or "")
                 candidate_path.unlink(missing_ok=True)
                 cleanup_review_spectrum_cache(int(review_item["id"]))
-    response = RedirectResponse(f"/admin?lang={lang}&tab={tab}", status_code=303)
+    response = RedirectResponse(admin_redirect_target(lang, tab), status_code=303)
     set_lang_cookie(request, response, lang)
     return response
 

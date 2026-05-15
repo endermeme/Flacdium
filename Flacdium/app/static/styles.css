@@ -863,6 +863,12 @@ select:disabled {
   overflow: hidden;
 }
 
+.admin-tab-panel {
+  min-height: 0;
+  overflow: hidden;
+  flex: 1 1 auto;
+}
+
 .admin-tabs {
   display: flex;
   align-items: center;
@@ -896,7 +902,9 @@ select:disabled {
 .admin-table-scroll {
   min-height: 0;
   height: 100%;
-  overflow: auto;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  scrollbar-gutter: stable both-edges;
 }
 
 .admin-filter-panel {
@@ -905,11 +913,11 @@ select:disabled {
 }
 
 .admin-filter-grid {
-  grid-template-columns: 1.3fr 160px 160px 180px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .admin-track-filter-grid {
-  grid-template-columns: 1.5fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .admin-table {
@@ -921,25 +929,50 @@ select:disabled {
   flex: 1 1 auto;
 }
 
-.admin-block-form {
+.admin-section {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 6px;
+  min-height: 0;
   overflow: hidden;
+  scroll-margin-top: 8px;
 }
 
-.admin-block-grid {
+.admin-section-tab {
+  height: 100%;
+}
+
+.admin-section-head {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+}
+
+.admin-section-body {
+  min-height: 0;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  scrollbar-gutter: stable both-edges;
   display: grid;
+  align-content: start;
   gap: 6px;
-  overflow: hidden;
+  padding-right: 2px;
 }
 
-.admin-block-grid-sessions {
-  grid-template-rows: auto minmax(0, 1fr) auto;
+.admin-section-body::-webkit-scrollbar,
+.admin-table-scroll::-webkit-scrollbar {
+  width: 10px;
 }
 
-.admin-block-grid-tracks {
-  grid-template-rows: auto minmax(0, 1fr);
+.admin-section-body::-webkit-scrollbar-thumb,
+.admin-table-scroll::-webkit-scrollbar-thumb {
+  background: #a8b4c3;
+  border: 2px solid #edf2f7;
+}
+
+.admin-section-body::-webkit-scrollbar-track,
+.admin-table-scroll::-webkit-scrollbar-track {
+  background: #edf2f7;
 }
 
 .inline-form {
@@ -991,12 +1024,18 @@ select:disabled {
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
+  hyphens: auto;
 }
 
 .page-admin .uploader-credit-cell,
 .page-admin .track-main {
   text-overflow: clip;
   white-space: normal;
+}
+
+.page-admin .library-table thead th,
+.page-admin .library-table tbody td {
+  min-width: 0;
 }
 
 .page-admin .track-actions {
@@ -1716,10 +1755,6 @@ select:disabled {
   .page-admin .admin-dashboard {
     gap: 6px;
     padding: 4px;
-  }
-
-  .page-admin .admin-table-scroll {
-    overflow: auto;
   }
 
   .page-admin .library-table thead {
