@@ -156,6 +156,7 @@ UPLOAD_RATE_LIMIT = env_int("FLACDIUM_UPLOAD_RATE_LIMIT", 10)
 UPLOAD_RATE_WINDOW_SECONDS = env_int("FLACDIUM_UPLOAD_RATE_WINDOW_SECONDS", 3600)
 DOWNLOAD_RATE_LIMIT = env_int("FLACDIUM_DOWNLOAD_RATE_LIMIT", 50)
 DOWNLOAD_RATE_WINDOW_SECONDS = env_int("FLACDIUM_DOWNLOAD_RATE_WINDOW_SECONDS", 3600)
+SESSION_SEEN_WINDOW_SECONDS = env_int("FLACDIUM_SESSION_SEEN_WINDOW_SECONDS", 1800)
 MAX_CONCURRENT_DOWNLOADS = env_int("FLACDIUM_MAX_CONCURRENT_DOWNLOADS", 3)
 LANGUAGES = ("vi", "en")
 REQUIRED_TAGS = ("artist", "album", "title", "tracknumber", "date")
@@ -287,6 +288,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_toggle_enable": "mở",
         "admin_log_user": "tài khoản",
         "admin_log_ip": "ip",
+        "admin_log_host": "link vào",
         "admin_log_forwarded": "forwarded",
         "admin_log_agent": "user-agent",
         "admin_log_time": "thời gian",
@@ -304,6 +306,9 @@ TEXT: dict[str, dict[str, str]] = {
         "cell_lookup_lookup_failed": "tra cell thất bại",
         "cell_lookup_not_needed": "ip không đổi",
         "cell_lookup_ok": "đã tra được cell",
+        "cell_lookup_session_seen": "đã thấy phiên cookie",
+        "cell_lookup_login_failed": "đăng nhập thất bại",
+        "cell_lookup_user_disabled": "tài khoản bị khóa",
         "admin_filter_user": "lọc tài khoản",
         "admin_filter_user_placeholder": "tên đăng nhập",
         "admin_filter_from": "từ ngày",
@@ -523,6 +528,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_toggle_enable": "enable",
         "admin_log_user": "account",
         "admin_log_ip": "ip",
+        "admin_log_host": "entry host",
         "admin_log_forwarded": "forwarded",
         "admin_log_agent": "user-agent",
         "admin_log_time": "time",
@@ -540,6 +546,9 @@ TEXT: dict[str, dict[str, str]] = {
         "cell_lookup_lookup_failed": "cell lookup failed",
         "cell_lookup_not_needed": "ip unchanged",
         "cell_lookup_ok": "cell lookup ok",
+        "cell_lookup_session_seen": "cookie session seen",
+        "cell_lookup_login_failed": "login failed",
+        "cell_lookup_user_disabled": "account disabled",
         "admin_filter_user": "filter account",
         "admin_filter_user_placeholder": "username",
         "admin_filter_from": "from date",
@@ -778,6 +787,8 @@ def init_db() -> None:
             )
             """
         )
+        ensure_column(connection, "login_logs", "entry_host", "entry_host TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "login_logs", "entry_origin", "entry_origin TEXT NOT NULL DEFAULT ''")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS request_events (
@@ -1449,13 +1460,43 @@ def require_admin(request: Request) -> sqlite3.Row:
     return user
 
 
+def get_client_ip_details(request: Request) -> tuple[str, str, str]:
+    peer_ip = request.client.host.strip() if request.client and request.client.host else ""
+    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
+    forwarded_first = forwarded_for.split(",")[0].strip() if forwarded_for else ""
+    real_ip_candidates = [
+        request.headers.get("cf-connecting-ip", "").strip(),
+        request.headers.get("true-client-ip", "").strip(),
+        request.headers.get("fly-client-ip", "").strip(),
+        request.headers.get("x-real-ip", "").strip(),
+    ]
+    hinted_ip = next((value for value in real_ip_candidates if value), "")
+    security_ip = peer_ip or hinted_ip or forwarded_first or "unknown"
+    if TRUST_PROXY and forwarded_first:
+        security_ip = forwarded_first
+    display_ip = hinted_ip or forwarded_first or peer_ip or "unknown"
+    return security_ip, display_ip, forwarded_for
+
+
 def get_client_ip(request: Request) -> tuple[str, str]:
-    forwarded_for = request.headers.get("x-forwarded-for", "").strip() if TRUST_PROXY else ""
-    if forwarded_for:
-        ip_address = forwarded_for.split(",")[0].strip()
-        return ip_address, forwarded_for
-    client_host = request.client.host if request.client else ""
-    return client_host or "unknown", ""
+    security_ip, _, forwarded_for = get_client_ip_details(request)
+    return security_ip, forwarded_for if TRUST_PROXY else ""
+
+
+def display_ip_value(ip_address: str, forwarded_for: str = "") -> str:
+    cleaned_ip = str(ip_address or "").strip()
+    if cleaned_ip and cleaned_ip.lower() != "unknown":
+        return cleaned_ip
+    forwarded_first = str(forwarded_for or "").split(",")[0].strip()
+    return forwarded_first or "-"
+
+
+def request_origin_details(request: Request) -> tuple[str, str]:
+    host = (request.headers.get("host") or "").strip()
+    forwarded_proto = (request.headers.get("x-forwarded-proto") or "").strip().split(",")[0].strip()
+    scheme = forwarded_proto or request.url.scheme or "http"
+    origin = f"{scheme}://{host}" if host else ""
+    return host, origin
 
 
 def enforce_body_size_limit(request: Request, limit_bytes: int) -> None:
@@ -1515,7 +1556,7 @@ def record_request_event(action: str, scope_key: str) -> None:
 
 
 def enforce_login_rate_limit(request: Request, username_value: str) -> None:
-    ip_address, _ = get_client_ip(request)
+    _, ip_address, _ = get_client_ip_details(request)
     check_rate_limit(request, "login", f"ip:{ip_address}", LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_SECONDS)
     if username_value:
         check_rate_limit(
@@ -1616,15 +1657,17 @@ def record_login_log(
     cell_lookup_address: str,
     cell_lookup_payload: str,
 ) -> None:
-    ip_address, forwarded_for = get_client_ip(request)
+    _, ip_address, forwarded_for = get_client_ip_details(request)
+    entry_host, entry_origin = request_origin_details(request)
     user_agent = request.headers.get("user-agent", "")
     with get_db() as connection:
         connection.execute(
             """
             INSERT INTO login_logs (
                 user_id, attempted_username, success, ip_address, forwarded_for, user_agent,
-                ip_changed, cell_lookup_status, cell_lookup_address, cell_lookup_payload, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ip_changed, cell_lookup_status, cell_lookup_address, cell_lookup_payload,
+                entry_host, entry_origin, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user["id"] if user is not None else None,
@@ -1637,9 +1680,54 @@ def record_login_log(
                 cell_lookup_status,
                 cell_lookup_address,
                 cell_lookup_payload,
+                entry_host,
+                entry_origin,
                 now_utc().isoformat(),
             ),
         )
+
+
+def maybe_record_session_seen(request: Request, user: sqlite3.Row | dict[str, Any] | None) -> None:
+    if user is None:
+        return
+    if (request.headers.get("x-requested-with") or "").strip().lower() == "xmlhttprequest":
+        return
+    user_id = int(user["id"])
+    username = str(user["username"])
+    _, ip_address, forwarded_for = get_client_ip_details(request)
+    entry_host, _ = request_origin_details(request)
+    user_agent = request.headers.get("user-agent", "")
+    agent_scope = hashlib.sha1(user_agent.encode("utf-8")).hexdigest()[:12] if user_agent else "na"
+    scope_key = f"user:{user_id}:ip:{ip_address}:host:{entry_host}:agent:{agent_scope}"
+    if has_recent_request_event("session_seen", scope_key, SESSION_SEEN_WINDOW_SECONDS):
+        return
+    with get_db() as connection:
+        last_success = connection.execute(
+            """
+            SELECT ip_address, forwarded_for
+            FROM login_logs
+            WHERE user_id = ? AND success = 1
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+    last_ip = display_ip_value(
+        str(last_success["ip_address"] or "") if last_success is not None else "",
+        str(last_success["forwarded_for"] or "") if last_success is not None else "",
+    )
+    current_ip = display_ip_value(ip_address, forwarded_for)
+    record_login_log(
+        request=request,
+        attempted_username=username,
+        user=user,
+        success=True,
+        ip_changed=last_success is not None and last_ip != current_ip,
+        cell_lookup_status="session_seen",
+        cell_lookup_address="",
+        cell_lookup_payload="",
+    )
+    record_request_event("session_seen", scope_key)
 
 
 def copy_stream_limited(source: Any, target: Any, max_bytes: int, error_code: str) -> int:
@@ -3377,6 +3465,12 @@ def fetch_admin_users(connection: sqlite3.Connection) -> list[dict[str, Any]]:
                 LIMIT 1
             ) AS last_ip,
             (
+                SELECT forwarded_for FROM login_logs
+                WHERE login_logs.user_id = users.id AND login_logs.success = 1
+                ORDER BY login_logs.created_at DESC
+                LIMIT 1
+            ) AS last_forwarded_for,
+            (
                 SELECT created_at FROM login_logs
                 WHERE login_logs.user_id = users.id AND login_logs.success = 1
                 ORDER BY login_logs.created_at DESC
@@ -3393,6 +3487,7 @@ def fetch_admin_users(connection: sqlite3.Connection) -> list[dict[str, Any]]:
     users: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
+        item["last_ip"] = display_ip_value(str(row["last_ip"] or ""), str(row["last_forwarded_for"] or ""))
         item["created_label"] = human_datetime(row["created_at"])
         item["last_login_label"] = human_datetime(row["last_login_at"])
         users.append(item)
@@ -3409,6 +3504,7 @@ def fetch_admin_summary(connection: sqlite3.Connection) -> dict[str, int]:
 
 
 def fetch_admin_logs(connection: sqlite3.Connection, request: Request) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    t = text_for(get_lang(request))
     logs_page = parse_page(request.query_params.get("logs_page"))
     user_filter = (request.query_params.get("log_user") or "").strip()
     date_from = (request.query_params.get("date_from") or "").strip()
@@ -3448,6 +3544,11 @@ def fetch_admin_logs(connection: sqlite3.Connection, request: Request) -> tuple[
     logs: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
+        item["ip_display"] = display_ip_value(str(row["ip_address"] or ""), str(row["forwarded_for"] or ""))
+        item["entry_host"] = str(row["entry_host"] or "").strip() or "-"
+        item["entry_origin"] = str(row["entry_origin"] or "").strip()
+        status_key = str(row["cell_lookup_status"] or "").strip()
+        item["cell_lookup_status_label"] = t.get(f"cell_lookup_{status_key}", status_key or "-")
         item["created_label"] = human_datetime(row["created_at"])
         logs.append(item)
     filters = {
@@ -3529,6 +3630,7 @@ def normalize_admin_tab(raw_value: str | None) -> str:
 
 def render_admin(request: Request, notice: str = "", status_code: int = 200) -> HTMLResponse:
     admin_user = require_admin(request)
+    maybe_record_session_seen(request, admin_user)
     lang = get_lang(request)
     t = text_for(lang)
     csrf_token = get_or_create_csrf_token(request)
@@ -3578,6 +3680,9 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
     response = templates.TemplateResponse(request, "admin.html", context, status_code=status_code)
     set_lang_cookie(request, response, lang)
     set_csrf_cookie(request, response, csrf_token)
+    response.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     return response
 
 
@@ -3593,6 +3698,7 @@ def render_home(
     lang = get_lang(request)
     t = text_for(lang)
     user = current_user(request)
+    maybe_record_session_seen(request, user)
     csrf_token = get_or_create_csrf_token(request)
     with get_db() as connection:
         tracks, filters, track_pagination = fetch_tracks(connection, request, lang)
@@ -3746,7 +3852,7 @@ async def login(
     with get_db() as connection:
         last_success = connection.execute(
             """
-            SELECT ip_address
+            SELECT ip_address, forwarded_for
             FROM login_logs
             WHERE user_id = ? AND success = 1
             ORDER BY created_at DESC
@@ -3754,7 +3860,13 @@ async def login(
             """,
             (user["id"],),
         ).fetchone()
-    ip_changed = last_success is not None and last_success["ip_address"] != ip_address
+    ip_changed = (
+        last_success is not None
+        and display_ip_value(
+            str(last_success["ip_address"] or ""),
+            str(last_success["forwarded_for"] or ""),
+        ) != display_ip_value(ip_address)
+    )
     cell_status, cell_address, cell_payload = lookup_cell_location(
         {
             "mcc": cell_mcc.strip(),

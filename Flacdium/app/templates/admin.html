@@ -25,6 +25,7 @@
     </div>
   </div>
 
+  <div class="viewport-shell admin-viewport">
   <section class="dashboard admin-dashboard">
     <div class="stats-strip">
       <span><strong>{{ t["admin_title"] }}</strong></span>
@@ -47,7 +48,7 @@
     {% endif %}
 
     {% if active_tab == "accounts" %}
-      <form class="admin-block" method="post" action="/admin/users/bulk" data-bulk-form>
+      <form class="admin-block admin-block-form admin-block-fill" method="post" action="/admin/users/bulk" data-bulk-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="tab" value="accounts">
         <div class="table-toolbar">
@@ -95,11 +96,7 @@
                   <td>{{ user["login_count"] }}</td>
                   <td>
                     {% if not (user["is_admin"] and user["username"] == current_user["username"]) %}
-                      <form method="post" action="/admin/users/{{ user['id'] }}/toggle" class="inline-form">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="tab" value="accounts">
-                        <button type="submit" class="mini-button">{{ t["admin_toggle_disable"] if user["is_active"] else t["admin_toggle_enable"] }}</button>
-                      </form>
+                      <button type="submit" class="mini-button" formaction="/admin/users/{{ user['id'] }}/toggle">{{ t["admin_toggle_disable"] if user["is_active"] else t["admin_toggle_enable"] }}</button>
                     {% endif %}
                   </td>
                 </tr>
@@ -115,7 +112,7 @@
     {% endif %}
 
     {% if active_tab == "sessions" %}
-      <div class="admin-block">
+      <div class="admin-block admin-block-grid admin-block-grid-sessions admin-block-fill">
         <form class="filter-panel admin-filter-panel" method="get" action="/admin">
           <input type="hidden" name="lang" value="{{ lang }}">
           <input type="hidden" name="tab" value="sessions">
@@ -148,7 +145,7 @@
           </div>
         </form>
 
-        <form method="post" action="/admin/logs/bulk-delete" data-bulk-form>
+        <form method="post" action="/admin/logs/bulk-delete" data-bulk-form class="admin-block-form admin-block-fill">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="tab" value="sessions">
           <div class="table-toolbar">
@@ -167,6 +164,7 @@
                   <th class="select-col">{{ t["admin_select"] }}</th>
                   <th>{{ t["admin_log_user"] }}</th>
                   <th>{{ t["admin_log_ip"] }}</th>
+                  <th>{{ t["admin_log_host"] }}</th>
                   <th>{{ t["admin_log_forwarded"] }}</th>
                   <th>{{ t["admin_log_result"] }}</th>
                   <th>{{ t["admin_log_cell"] }}</th>
@@ -179,20 +177,21 @@
                   <tr>
                     <td class="select-col"><input type="checkbox" name="log_ids" value="{{ log['id'] }}" data-bulk-item></td>
                     <td>{{ log["current_username"] or log["attempted_username"] }}</td>
-                    <td>{{ log["ip_address"] }}</td>
+                    <td>{{ log["ip_display"] }}</td>
+                    <td title="{{ log['entry_origin'] or log['entry_host'] }}">{{ log["entry_host"] }}</td>
                     <td>{{ log["forwarded_for"] or "-" }}</td>
                     <td>
                       {{ t["admin_log_success"] if log["success"] else t["admin_log_failed"] }}
                       |
                       {{ t["admin_log_ip_changed"] if log["ip_changed"] else t["admin_log_same_ip"] }}
                     </td>
-                    <td>{{ log["cell_lookup_status"] }}{% if log["cell_lookup_address"] %} | {{ log["cell_lookup_address"] }}{% endif %}</td>
+                    <td>{{ log["cell_lookup_status_label"] }}{% if log["cell_lookup_address"] %} | {{ log["cell_lookup_address"] }}{% endif %}</td>
                     <td>{{ log["created_label"] }}</td>
                     <td class="agent-cell">{{ log["user_agent"] or "-" }}</td>
                   </tr>
                 {% else %}
                   <tr>
-                    <td colspan="8" class="empty-row">{{ t["admin_logs_empty"] }}</td>
+                    <td colspan="9" class="empty-row">{{ t["admin_logs_empty"] }}</td>
                   </tr>
                 {% endfor %}
               </tbody>
@@ -219,7 +218,7 @@
     {% endif %}
 
     {% if active_tab == "tracks" %}
-      <div class="admin-block">
+      <div class="admin-block admin-block-grid admin-block-grid-tracks admin-block-fill">
         <form class="filter-panel admin-filter-panel" method="get" action="/admin">
           <input type="hidden" name="lang" value="{{ lang }}">
           <input type="hidden" name="tab" value="tracks">
@@ -239,7 +238,7 @@
           </div>
         </form>
 
-        <form method="post" action="/admin/tracks/bulk-delete" data-bulk-form>
+        <form method="post" action="/admin/tracks/bulk-delete" data-bulk-form class="admin-block-form admin-block-fill">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="tab" value="tracks">
           <div class="table-toolbar">
@@ -313,7 +312,7 @@
     {% endif %}
 
     {% if active_tab == "reviews" %}
-      <form class="admin-block" method="post" action="/admin/reviews/bulk" data-bulk-form>
+      <form class="admin-block admin-block-form admin-block-fill" method="post" action="/admin/reviews/bulk" data-bulk-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="tab" value="reviews">
         <div class="table-toolbar">
@@ -391,16 +390,8 @@
                   <td>
                     {% if item["candidate_exists"] %}
                       <div class="admin-action-stack">
-                        <form method="post" action="/admin/reviews/{{ item['id'] }}/approve" class="inline-form">
-                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                          <input type="hidden" name="tab" value="reviews">
-                          <button type="submit" class="mini-button">{{ t["admin_review_approve"] }}</button>
-                        </form>
-                        <form method="post" action="/admin/reviews/{{ item['id'] }}/reject" class="inline-form">
-                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                          <input type="hidden" name="tab" value="reviews">
-                          <button type="submit" class="mini-button danger-button">{{ t["admin_review_reject"] }}</button>
-                        </form>
+                        <button type="submit" class="mini-button" formaction="/admin/reviews/{{ item['id'] }}/approve">{{ t["admin_review_approve"] }}</button>
+                        <button type="submit" class="mini-button danger-button" formaction="/admin/reviews/{{ item['id'] }}/reject">{{ t["admin_review_reject"] }}</button>
                       </div>
                     {% else %}
                       missing file
@@ -418,4 +409,5 @@
       </form>
     {% endif %}
   </section>
+  </div>
 {% endblock %}
