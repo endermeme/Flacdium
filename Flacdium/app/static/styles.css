@@ -660,6 +660,16 @@ button {
   white-space: nowrap;
 }
 
+.support-note {
+  margin-bottom: 6px;
+  padding: 4px 6px;
+  border: 1px solid #a2afbf;
+  background: #f9fbfd;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
 .upload-panel,
 .filter-panel,
 .side-panel,
