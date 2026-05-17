@@ -164,6 +164,9 @@ TRACKS_PER_PAGE = max(6, env_int("FLACDIUM_TRACKS_PER_PAGE", 10))
 ARTISTS_PAGE_SIZE = 5
 ALBUMS_PAGE_SIZE = 6
 UPLOADERS_PAGE_SIZE = 4
+QUICK_TRACKS_PAGE_SIZE = max(80, env_int("FLACDIUM_QUICK_TRACKS_PAGE_SIZE", 180))
+QUICK_ALBUMS_PAGE_SIZE = max(60, env_int("FLACDIUM_QUICK_ALBUMS_PAGE_SIZE", 140))
+QUICK_ARTISTS_PAGE_SIZE = max(60, env_int("FLACDIUM_QUICK_ARTISTS_PAGE_SIZE", 140))
 LOGIN_LOGS_PER_PAGE = 40
 ADMIN_LOGS_MAX_ROWS = env_int("FLACDIUM_ADMIN_LOGS_MAX_ROWS", 1000)
 MAX_BUNDLE_TRACKS = 100
@@ -3400,7 +3403,7 @@ def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[
             where.append(f"({' OR '.join(clauses)})")
         sql_where = " AND ".join(where)
         total = connection.execute(f"SELECT COUNT(*) AS total FROM tracks WHERE {sql_where}", params).fetchone()["total"]
-        pagination = build_pagination(request, "quick_tracks_page", tracks_page, total, 48)
+        pagination = build_pagination(request, "quick_tracks_page", tracks_page, total, QUICK_TRACKS_PAGE_SIZE)
         rows = connection.execute(
             f"""
             SELECT id, title, artist, album, cover_path
@@ -3409,7 +3412,7 @@ def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[
             ORDER BY title COLLATE NOCASE ASC, artist COLLATE NOCASE ASC
             LIMIT ? OFFSET ?
             """,
-            (*params, 48, (pagination["page"] - 1) * 48),
+            (*params, QUICK_TRACKS_PAGE_SIZE, (pagination["page"] - 1) * QUICK_TRACKS_PAGE_SIZE),
         ).fetchall()
         return {
             "items": [
@@ -3448,7 +3451,7 @@ def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[
             """,
             params,
         ).fetchone()["total"]
-        pagination = build_pagination(request, "quick_albums_page", albums_page, total, 36)
+        pagination = build_pagination(request, "quick_albums_page", albums_page, total, QUICK_ALBUMS_PAGE_SIZE)
         rows = connection.execute(
             f"""
             SELECT artist, album, MIN(cover_path) AS cover_path, COUNT(*) AS tracks
@@ -3458,7 +3461,7 @@ def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[
             ORDER BY album COLLATE NOCASE ASC, artist COLLATE NOCASE ASC
             LIMIT ? OFFSET ?
             """,
-            (*params, 36, (pagination["page"] - 1) * 36),
+            (*params, QUICK_ALBUMS_PAGE_SIZE, (pagination["page"] - 1) * QUICK_ALBUMS_PAGE_SIZE),
         ).fetchall()
         return {
             "items": [
@@ -3493,7 +3496,7 @@ def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[
             f"SELECT COUNT(*) AS total FROM (SELECT artist FROM tracks WHERE {sql_where} GROUP BY artist)",
             params,
         ).fetchone()["total"]
-        pagination = build_pagination(request, "quick_artists_page", artists_page, total, 36)
+        pagination = build_pagination(request, "quick_artists_page", artists_page, total, QUICK_ARTISTS_PAGE_SIZE)
         rows = connection.execute(
             f"""
             SELECT
@@ -3513,7 +3516,7 @@ def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[
             ORDER BY t.artist COLLATE NOCASE ASC
             LIMIT ? OFFSET ?
             """,
-            (*params, 36, (pagination["page"] - 1) * 36),
+            (*params, QUICK_ARTISTS_PAGE_SIZE, (pagination["page"] - 1) * QUICK_ARTISTS_PAGE_SIZE),
         ).fetchall()
         return {
             "items": [
