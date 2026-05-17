@@ -627,6 +627,28 @@ if (window.XMLHttpRequest && window.FormData) {
       fetchQuickfindUrl(hrefFromForm(quickJumpForm));
       return;
     }
+    const viewportJumpForm = event.target.closest("[data-viewport-jump]");
+    if (viewportJumpForm) {
+      event.preventDefault();
+      const href = `${hrefFromForm(viewportJumpForm)}#tracks-panel`;
+      fetch(href, {
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        credentials: "same-origin",
+      })
+        .then((response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.text();
+        })
+        .then((html) => {
+          if (!replaceViewportFromHtml(html, href)) window.location.href = href;
+        })
+        .catch(() => {
+          window.location.href = href;
+        });
+      return;
+    }
 
     const uploadForm = event.target.closest("[data-upload-form]");
     if (!uploadForm) return;

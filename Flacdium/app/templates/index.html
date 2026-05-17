@@ -305,6 +305,7 @@
         <div class="filter-actions">
           <button type="submit">{{ t["scan"] }}</button>
           <a href="/?lang={{ lang }}">{{ t["clear"] }}</a>
+          <button type="button" class="mini-button toolbar-quickfind" data-open-quickfind>{{ t["nav_quickfind"] }}</button>
         </div>
       </form>
     </section>
@@ -394,7 +395,6 @@
           <button type="button" class="mini-button" data-download-selected data-base-label="{{ t['download_many_flac'] }}" data-download-limit-message="{{ t['download_many_limit'] }}">{{ t["download_many_flac"] }}</button>
           <button type="button" class="mini-button" data-download-zip data-base-label="{{ t['download_zip'] }}" data-download-limit-message="{{ t['download_zip_limit'] }}">{{ t["download_zip"] }}</button>
         </div>
-        <button type="button" class="mini-button toolbar-quickfind" data-open-quickfind>{{ t["nav_quickfind"] }}</button>
       </div>
       <div class="table-scroll">
         <table class="library-table">
@@ -477,12 +477,32 @@
           {% else %}
             <span class="pager-button pager-button-track is-disabled">{{ t["page_prev"] }}</span>
           {% endif %}
-          <span class="pager-status">{{ t["page_label"] }} {{ track_pagination["page"] }}/{{ track_pagination["total_pages"] }}</span>
+          <div class="track-pager-pages">
+            {% for page_num in track_pagination["page_links"] %}
+              {% if page_num == "..." %}
+                <span class="pager-ellipsis">...</span>
+              {% elif page_num == track_pagination["page"] %}
+                <span class="pager-page is-active">{{ page_num }}</span>
+              {% else %}
+                <a class="pager-page" href="{{ track_pagination['jump_url_template'] | replace('__PAGE__', page_num|string) }}#tracks-panel" data-ajax-page="viewport">{{ page_num }}</a>
+              {% endif %}
+            {% endfor %}
+          </div>
           {% if track_pagination["next_url"] %}
             <a class="pager-button pager-button-track" href="{{ track_pagination['next_url'] }}" data-ajax-page="viewport">{{ t["page_next"] }}</a>
           {% else %}
             <span class="pager-button pager-button-track is-disabled">{{ t["page_next"] }}</span>
           {% endif %}
+          <form class="track-page-jump" method="get" action="/" data-viewport-jump>
+            <input type="hidden" name="lang" value="{{ lang }}">
+            <input type="hidden" name="q" value="{{ filters['q'] }}">
+            <input type="hidden" name="uploader" value="{{ filters['uploader'] }}">
+            <input type="hidden" name="artist" value="{{ filters['artist'] }}">
+            <input type="hidden" name="album" value="{{ filters['album'] }}">
+            <input type="hidden" name="sort" value="{{ filters['sort'] }}">
+            <input type="number" min="1" max="{{ track_pagination['total_pages'] }}" name="tracks_page" value="{{ track_pagination['page'] }}">
+            <button type="submit">{{ t["jump"] }}</button>
+          </form>
         </div>
       {% endif %}
       <div class="mobile-track-list">

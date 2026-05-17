@@ -461,7 +461,7 @@ button {
   padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   overflow: hidden;
 }
 
@@ -527,7 +527,8 @@ button {
 
 .quickfind-tabs {
   display: flex;
-  gap: 4px;
+  gap: 3px;
+  flex: 0 0 auto;
 }
 
 .quickfind-tab {
@@ -549,12 +550,14 @@ button {
   padding: 3px 5px;
   border: 1px solid #97a6b8;
   background: #fff;
+  flex: 0 0 auto;
 }
 
 .quickfind-letters {
   display: flex;
   flex-wrap: wrap;
   gap: 2px;
+  flex: 0 0 auto;
 }
 
 .quickfind-letter {
@@ -574,18 +577,23 @@ button {
 }
 
 .quick-tab-panel {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
   min-height: 0;
 }
 
 .quick-items-grid {
   display: grid;
   gap: 4px;
-  max-height: calc(100vh - 230px);
+  flex: 1 1 auto;
+  height: 100%;
+  max-height: none;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
+  align-content: start;
 }
 
 .quick-items-tracks {
@@ -654,6 +662,7 @@ button {
   justify-content: center;
   gap: 6px;
   flex-wrap: wrap;
+  flex: 0 0 auto;
 }
 
 .quick-pager-pages {
@@ -1442,6 +1451,25 @@ select:disabled {
   white-space: nowrap;
 }
 
+.track-pager-pages {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.track-page-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.track-page-jump input {
+  width: 56px;
+  padding: 2px 4px;
+  border: 1px solid #97a6b8;
+}
+
 .pager-link {
   color: var(--navy);
   text-decoration: underline;
@@ -1985,7 +2013,8 @@ select:disabled {
   }
 
   .quick-items-grid {
-    max-height: calc(100vh - 250px);
+    height: 100%;
+    max-height: none;
   }
 
   .pager-button-track {
