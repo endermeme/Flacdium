@@ -3381,6 +3381,9 @@ def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[
         letters = []
         for part in raw.split(","):
             value = part.strip()
+            if value == "ETC" and value not in letters:
+                letters.append(value)
+                continue
             if len(value) == 1 and value.isalpha() and value.isascii() and value not in letters:
                 letters.append(value)
         return letters
@@ -3398,8 +3401,11 @@ def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[
         if tracks_letters:
             clauses = []
             for letter in tracks_letters:
-                clauses.append("title_norm LIKE ?")
-                params.append(f"{letter.lower()}%")
+                if letter == "ETC":
+                    clauses.append("(title_norm <> '' AND title_norm NOT GLOB '[a-z]*')")
+                else:
+                    clauses.append("title_norm LIKE ?")
+                    params.append(f"{letter.lower()}%")
             where.append(f"({' OR '.join(clauses)})")
         sql_where = " AND ".join(where)
         total = connection.execute(f"SELECT COUNT(*) AS total FROM tracks WHERE {sql_where}", params).fetchone()["total"]
@@ -3440,8 +3446,11 @@ def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[
         if albums_letters:
             clauses = []
             for letter in albums_letters:
-                clauses.append("album_norm LIKE ?")
-                params.append(f"{letter.lower()}%")
+                if letter == "ETC":
+                    clauses.append("(album_norm <> '' AND album_norm NOT GLOB '[a-z]*')")
+                else:
+                    clauses.append("album_norm LIKE ?")
+                    params.append(f"{letter.lower()}%")
             where.append(f"({' OR '.join(clauses)})")
         sql_where = " AND ".join(where)
         total = connection.execute(
@@ -3488,8 +3497,11 @@ def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[
         if artists_letters:
             clauses = []
             for letter in artists_letters:
-                clauses.append("artist_norm LIKE ?")
-                params.append(f"{letter.lower()}%")
+                if letter == "ETC":
+                    clauses.append("(artist_norm <> '' AND artist_norm NOT GLOB '[a-z]*')")
+                else:
+                    clauses.append("artist_norm LIKE ?")
+                    params.append(f"{letter.lower()}%")
             where.append(f"({' OR '.join(clauses)})")
         sql_where = " AND ".join(where)
         total = connection.execute(
@@ -3535,7 +3547,7 @@ def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[
 
     return {
         "active_tab": quick_tab,
-        "letters": [chr(value) for value in range(ord("A"), ord("Z") + 1)],
+        "letters": [chr(value) for value in range(ord("A"), ord("Z") + 1)] + ["ETC"],
         "tracks": build_track_tab(),
         "albums": build_album_tab(),
         "artists": build_artist_tab(),
