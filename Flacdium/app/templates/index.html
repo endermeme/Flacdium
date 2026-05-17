@@ -64,111 +64,97 @@
         <strong>{{ t["quickfind_title"] }}</strong>
         <button type="button" class="mini-link" data-close-quickfind>{{ t["close"] }}</button>
       </div>
-      <div class="quickfind-grid">
-        <form method="get" action="/" class="quickfind-form">
-          <input type="hidden" name="lang" value="{{ lang }}">
-          <label>
-            <span>{{ t["quickfind_tracks"] }}</span>
-            <input type="text" name="q" value="{{ filters['q'] }}" placeholder="{{ t['find_placeholder'] }}">
-          </label>
-          <button type="submit">{{ t["jump"] }}</button>
-        </form>
-        <form method="get" action="/" class="quickfind-form">
-          <input type="hidden" name="lang" value="{{ lang }}">
-          <label>
-            <span>{{ t["quickfind_artists"] }}</span>
-            <input type="text" name="artist" value="{{ filters['artist'] }}" placeholder="{{ t['exact_artist'] }}">
-          </label>
-          <button type="submit">{{ t["jump"] }}</button>
-        </form>
-        <form method="get" action="/" class="quickfind-form">
-          <input type="hidden" name="lang" value="{{ lang }}">
-          <label>
-            <span>{{ t["quickfind_albums"] }}</span>
-            <input type="text" name="album" value="{{ filters['album'] }}" placeholder="{{ t['exact_album'] }}">
-          </label>
-          <button type="submit">{{ t["jump"] }}</button>
-        </form>
-        <form method="get" action="/" class="quickfind-form">
-          <input type="hidden" name="lang" value="{{ lang }}">
-          <label>
-            <span>{{ t["quickfind_uploaders"] }}</span>
-            <input type="text" name="uploader" value="{{ filters['uploader'] }}" placeholder="{{ t['exact_uploader'] }}">
-          </label>
-          <button type="submit">{{ t["jump"] }}</button>
-        </form>
+      <div class="quickfind-tabs">
+        <a class="quickfind-tab {% if quick_links['active_tab'] == 'tracks' %}is-active{% endif %}" href="/?quick_tab=tracks&lang={{ lang }}" data-ajax-page="quickfind">{{ t["quickfind_tab_tracks"] }}</a>
+        <a class="quickfind-tab {% if quick_links['active_tab'] == 'albums' %}is-active{% endif %}" href="/?quick_tab=albums&lang={{ lang }}" data-ajax-page="quickfind">{{ t["quickfind_tab_albums"] }}</a>
+        <a class="quickfind-tab {% if quick_links['active_tab'] == 'artists' %}is-active{% endif %}" href="/?quick_tab=artists&lang={{ lang }}" data-ajax-page="quickfind">{{ t["quickfind_tab_artists"] }}</a>
       </div>
-      <div class="quick-links-grid">
-        <section class="quick-links-panel">
-          <div class="panel-title">{{ t["artists"] }}</div>
-          <div class="quick-links-content">
-            {% for item in quick_links["artists"]["items"] %}
-              <a class="quick-link-item" href="/?artist={{ item['artist'] | urlencode }}&lang={{ lang }}">{{ item["artist"] }} <span>{{ item["tracks"] }}</span></a>
+      {% set active_tab = quick_links["active_tab"] %}
+      {% set tab_data = quick_links[active_tab] %}
+      <form class="quickfind-search" method="get" action="/" data-quickfind-live-search>
+        <input type="hidden" name="lang" value="{{ lang }}">
+        <input type="hidden" name="quick_tab" value="{{ active_tab }}">
+        <input type="text" name="quick_{{ active_tab }}_q" value="{{ tab_data['q'] }}" placeholder="{{ t['quickfind_search'] }}">
+      </form>
+      <form class="quickfind-letters" method="get" action="/" data-quickfind-letters>
+        <input type="hidden" name="lang" value="{{ lang }}">
+        <input type="hidden" name="quick_tab" value="{{ active_tab }}">
+        <input type="hidden" name="quick_{{ active_tab }}_q" value="{{ tab_data['q'] }}">
+        <input type="hidden" name="quick_{{ active_tab }}_letters" value="{{ tab_data['letters'] | join(',') }}" data-quickfind-letters-input>
+        {% for letter in quick_links["letters"] %}
+          <button type="button" class="quickfind-letter {% if letter in tab_data['letters'] %}is-active{% endif %}" data-quickfind-letter="{{ letter }}">{{ letter }}</button>
+        {% endfor %}
+        <button type="button" class="quickfind-letter {% if not tab_data['letters'] %}is-active{% endif %}" data-quickfind-letter-clear>ALL</button>
+      </form>
+      <section class="quick-tab-panel">
+        <div class="quick-items-grid quick-items-{{ active_tab }}">
+          {% if active_tab == "tracks" %}
+            {% for item in tab_data["items"] %}
+              <a class="quick-item-card" href="{{ item['href'] }}">
+                <img class="quick-item-thumb" src="{{ item['cover_url'] }}" alt="{{ item['album'] }}">
+                <span class="quick-item-meta">
+                  <strong class="quick-item-title clamp-1">{{ item["title"] }}</strong>
+                  <small class="quick-item-sub">{{ item["artist"] }} | {{ item["album"] }}</small>
+                </span>
+              </a>
             {% endfor %}
-          </div>
-          {% if quick_links["artists"]["pagination"]["total_pages"] > 1 %}
-            <div class="quick-links-pager">
-              {% if quick_links["artists"]["pagination"]["prev_url"] %}
-                <a class="pager-link" href="{{ quick_links['artists']['pagination']['prev_url'] }}" data-ajax-page="quickfind">{{ t["page_prev"] }}</a>
-              {% else %}
-                <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
-              {% endif %}
-              <span class="pager-mini-status">{{ quick_links["artists"]["pagination"]["page"] }}/{{ quick_links["artists"]["pagination"]["total_pages"] }}</span>
-              {% if quick_links["artists"]["pagination"]["next_url"] %}
-                <a class="pager-link" href="{{ quick_links['artists']['pagination']['next_url'] }}" data-ajax-page="quickfind">{{ t["page_next"] }}</a>
-              {% else %}
-                <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
-              {% endif %}
-            </div>
-          {% endif %}
-        </section>
-        <section class="quick-links-panel">
-          <div class="panel-title">{{ t["albums"] }}</div>
-          <div class="quick-links-content">
-            {% for item in quick_links["albums"]["items"] %}
-              <a class="quick-link-item" href="/?artist={{ item['artist'] | urlencode }}&album={{ item['album'] | urlencode }}&lang={{ lang }}">{{ item["album"] }} <span>{{ item["tracks"] }}</span></a>
+          {% elif active_tab == "albums" %}
+            {% for item in tab_data["items"] %}
+              <a class="quick-item-card" href="{{ item['href'] }}">
+                <img class="quick-item-thumb" src="{{ item['cover_url'] }}" alt="{{ item['album'] }}">
+                <span class="quick-item-meta">
+                  <strong class="quick-item-title clamp-2">{{ item["album"] }}</strong>
+                  <small class="quick-item-sub">{{ item["artist"] }} | {{ item["tracks"] }}</small>
+                </span>
+              </a>
             {% endfor %}
-          </div>
-          {% if quick_links["albums"]["pagination"]["total_pages"] > 1 %}
-            <div class="quick-links-pager">
-              {% if quick_links["albums"]["pagination"]["prev_url"] %}
-                <a class="pager-link" href="{{ quick_links['albums']['pagination']['prev_url'] }}" data-ajax-page="quickfind">{{ t["page_prev"] }}</a>
-              {% else %}
-                <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
-              {% endif %}
-              <span class="pager-mini-status">{{ quick_links["albums"]["pagination"]["page"] }}/{{ quick_links["albums"]["pagination"]["total_pages"] }}</span>
-              {% if quick_links["albums"]["pagination"]["next_url"] %}
-                <a class="pager-link" href="{{ quick_links['albums']['pagination']['next_url'] }}" data-ajax-page="quickfind">{{ t["page_next"] }}</a>
-              {% else %}
-                <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
-              {% endif %}
-            </div>
-          {% endif %}
-        </section>
-        <section class="quick-links-panel">
-          <div class="panel-title">{{ t["uploaders"] }}</div>
-          <div class="quick-links-content">
-            {% for item in quick_links["uploaders"]["items"] %}
-              <a class="quick-link-item" href="/?uploader={{ item['uploader'] | urlencode }}&lang={{ lang }}">{{ item["uploader"] }} <span>{{ item["tracks"] }}</span></a>
+          {% else %}
+            {% for item in tab_data["items"] %}
+              <a class="quick-item-card" href="{{ item['href'] }}">
+                {% if item["cover_url"] %}
+                  <img class="quick-item-thumb" src="{{ item['cover_url'] }}" alt="{{ item['artist'] }}">
+                {% endif %}
+                <span class="quick-item-meta">
+                  <strong class="quick-item-title clamp-1">{{ item["artist"] }}</strong>
+                  <small class="quick-item-sub">{{ item["tracks"] }}</small>
+                </span>
+              </a>
             {% endfor %}
-          </div>
-          {% if quick_links["uploaders"]["pagination"]["total_pages"] > 1 %}
-            <div class="quick-links-pager">
-              {% if quick_links["uploaders"]["pagination"]["prev_url"] %}
-                <a class="pager-link" href="{{ quick_links['uploaders']['pagination']['prev_url'] }}" data-ajax-page="quickfind">{{ t["page_prev"] }}</a>
-              {% else %}
-                <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
-              {% endif %}
-              <span class="pager-mini-status">{{ quick_links["uploaders"]["pagination"]["page"] }}/{{ quick_links["uploaders"]["pagination"]["total_pages"] }}</span>
-              {% if quick_links["uploaders"]["pagination"]["next_url"] %}
-                <a class="pager-link" href="{{ quick_links['uploaders']['pagination']['next_url'] }}" data-ajax-page="quickfind">{{ t["page_next"] }}</a>
-              {% else %}
-                <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
-              {% endif %}
-            </div>
           {% endif %}
-        </section>
-      </div>
+        </div>
+        {% if tab_data["pagination"]["total_pages"] > 1 %}
+          <div class="quick-pager">
+            {% if tab_data["pagination"]["prev_url"] %}
+              <a class="pager-link" href="{{ tab_data['pagination']['prev_url'] }}" data-ajax-page="quickfind">{{ t["page_prev"] }}</a>
+            {% else %}
+              <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
+            {% endif %}
+            <div class="quick-pager-pages">
+              {% for page_num in tab_data["pagination"]["page_links"] %}
+                {% if page_num == "..." %}
+                  <span class="pager-ellipsis">...</span>
+                {% elif page_num == tab_data["pagination"]["page"] %}
+                  <span class="pager-page is-active">{{ page_num }}</span>
+                {% else %}
+                  <a class="pager-page" href="{{ tab_data['pagination']['jump_url_template'] | replace('__PAGE__', page_num|string) }}" data-ajax-page="quickfind">{{ page_num }}</a>
+                {% endif %}
+              {% endfor %}
+            </div>
+            {% if tab_data["pagination"]["next_url"] %}
+              <a class="pager-link" href="{{ tab_data['pagination']['next_url'] }}" data-ajax-page="quickfind">{{ t["page_next"] }}</a>
+            {% else %}
+              <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
+            {% endif %}
+            <form class="quick-jump" method="get" action="/" data-quickfind-jump>
+              <input type="hidden" name="lang" value="{{ lang }}">
+              <input type="hidden" name="quick_tab" value="{{ active_tab }}">
+              <label>{{ t["quickfind_jump"] }}</label>
+              <input type="number" min="1" max="{{ tab_data['pagination']['total_pages'] }}" name="quick_{{ active_tab }}_page" value="{{ tab_data['pagination']['page'] }}">
+              <button type="submit">{{ t["jump"] }}</button>
+            </form>
+          </div>
+        {% endif %}
+      </section>
     </div>
   </div>
 

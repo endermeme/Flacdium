@@ -189,7 +189,7 @@ TEXT: dict[str, dict[str, str]] = {
         "nav_artists": "ca sĩ",
         "nav_albums": "album",
         "nav_uploaders": "người up",
-        "nav_quickfind": "tìm nhanh",
+        "nav_quickfind": "xem tất cả",
         "nav_admin": "quản trị",
         "signal_strip": "giao diện archive cũ | tông sáng dịu | giữ cover art nhúng",
         "tech_strip": "node flacdium-01 | auth sqlite | ingest flac-only | dedupe sha256",
@@ -405,12 +405,12 @@ TEXT: dict[str, dict[str, str]] = {
         "system_status": "public index | no js framework | sqlite auth | zip unpack on ingest",
         "file_rules": "quy tắc",
         "file_rules_note": "flac only | metadata đầy đủ | embedded cover | file lỗi và file trùng bị loại",
-        "quickfind_title": "tìm nhanh",
-        "quickfind_note": "nhảy nhanh theo từ khóa hoặc mở list gọn theo từng nhóm",
-        "quickfind_tracks": "tìm bài",
-        "quickfind_artists": "tìm ca sĩ",
-        "quickfind_albums": "tìm album",
-        "quickfind_uploaders": "tìm người up",
+        "quickfind_title": "xem tất cả",
+        "quickfind_tab_tracks": "bài hát",
+        "quickfind_tab_albums": "albums",
+        "quickfind_tab_artists": "ca sĩ",
+        "quickfind_search": "lọc nhanh",
+        "quickfind_jump": "đến trang",
         "jump": "mở",
         "bulk_delete": "xóa đã chọn",
         "bulk_delete_success": "đã xóa thành công",
@@ -429,7 +429,7 @@ TEXT: dict[str, dict[str, str]] = {
         "nav_artists": "artists",
         "nav_albums": "albums",
         "nav_uploaders": "uploaders",
-        "nav_quickfind": "quick find",
+        "nav_quickfind": "view all",
         "nav_admin": "admin",
         "signal_strip": "old archive layout | soft light palette | embedded cover art preserved",
         "tech_strip": "node flacdium-01 | auth sqlite | ingest flac-only | dedupe sha256",
@@ -642,12 +642,12 @@ TEXT: dict[str, dict[str, str]] = {
         "system_status": "public index | no js framework | sqlite auth | zip unpack on ingest",
         "file_rules": "rules",
         "file_rules_note": "flac only | complete metadata | embedded cover | broken and duplicate files are rejected",
-        "quickfind_title": "quick find",
-        "quickfind_note": "jump by keyword or open short lists by group",
-        "quickfind_tracks": "find tracks",
-        "quickfind_artists": "find artists",
-        "quickfind_albums": "find albums",
-        "quickfind_uploaders": "find uploaders",
+        "quickfind_title": "view all",
+        "quickfind_tab_tracks": "tracks",
+        "quickfind_tab_albums": "albums",
+        "quickfind_tab_artists": "artists",
+        "quickfind_search": "quick filter",
+        "quickfind_jump": "go to page",
         "bulk_delete": "delete selected",
         "bulk_delete_success": "successfully deleted",
         "jump": "open",
@@ -3095,6 +3095,28 @@ def build_pagination(
             prev_url = f"{prev_url}{anchor}"
         if next_url:
             next_url = f"{next_url}{anchor}"
+    page_links: list[int | str] = []
+    if total_pages <= 9:
+        page_links = list(range(1, total_pages + 1))
+    else:
+        page_links.extend([1, 2] if current_page > 4 else list(range(1, 5)))
+        if current_page > 5:
+            page_links.append("...")
+        window_start = max(3, current_page - 1)
+        window_end = min(total_pages - 2, current_page + 1)
+        for value in range(window_start, window_end + 1):
+            if value not in page_links:
+                page_links.append(value)
+        if current_page < total_pages - 4:
+            page_links.append("...")
+        tail = [total_pages - 1, total_pages]
+        for value in tail:
+            if value not in page_links and value >= 1:
+                page_links.append(value)
+    jump_param = "__PAGE__"
+    jump_url_template = url_with_lang(request, **{page_param: jump_param})
+    if anchor:
+        jump_url_template = f"{jump_url_template}{anchor}"
     return {
         "page": current_page,
         "total_pages": total_pages,
@@ -3102,6 +3124,9 @@ def build_pagination(
         "next_url": next_url,
         "total_items": total_items,
         "per_page": per_page,
+        "page_links": page_links,
+        "jump_url_template": jump_url_template,
+        "page_param": page_param,
     }
 
 
@@ -3334,123 +3359,183 @@ def fetch_tracks(
     return tracks, filters, pagination
 
 
-def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[str, dict[str, Any]]:
-    quick_artists_page = parse_page(request.query_params.get("quick_artists_page"))
-    quick_albums_page = parse_page(request.query_params.get("quick_albums_page"))
-    quick_uploaders_page = parse_page(request.query_params.get("quick_uploaders_page"))
+def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[str, Any]:
+    quick_tab = (request.query_params.get("quick_tab") or "tracks").strip().lower()
+    if quick_tab not in {"tracks", "albums", "artists"}:
+        quick_tab = "tracks"
 
-    artists_total = connection.execute(
-        """
-        SELECT COUNT(*) AS total
-        FROM (SELECT artist FROM tracks GROUP BY artist)
-        """,
-    ).fetchone()["total"]
-    artists_pagination = build_pagination(
-        request,
-        "quick_artists_page",
-        quick_artists_page,
-        artists_total,
-        ARTISTS_PAGE_SIZE,
-    )
-    artists = connection.execute(
-        """
-        SELECT artist, COUNT(*) AS tracks
-        FROM tracks
-        GROUP BY artist
-        ORDER BY tracks DESC, artist COLLATE NOCASE ASC
-        LIMIT ? OFFSET ?
-        """,
-        (
-            ARTISTS_PAGE_SIZE,
-            (artists_pagination["page"] - 1) * ARTISTS_PAGE_SIZE,
-        ),
-    ).fetchall()
+    tracks_page = parse_page(request.query_params.get("quick_tracks_page"))
+    albums_page = parse_page(request.query_params.get("quick_albums_page"))
+    artists_page = parse_page(request.query_params.get("quick_artists_page"))
+    tracks_q = (request.query_params.get("quick_tracks_q") or "").strip()
+    albums_q = (request.query_params.get("quick_albums_q") or "").strip()
+    artists_q = (request.query_params.get("quick_artists_q") or "").strip()
+    tracks_letters_raw = (request.query_params.get("quick_tracks_letters") or "").strip().upper()
+    albums_letters_raw = (request.query_params.get("quick_albums_letters") or "").strip().upper()
+    artists_letters_raw = (request.query_params.get("quick_artists_letters") or "").strip().upper()
 
-    albums_total = connection.execute(
-        """
-        SELECT COUNT(*) AS total
-        FROM (SELECT artist, album FROM tracks GROUP BY artist, album)
-        """,
-    ).fetchone()["total"]
-    albums_pagination = build_pagination(
-        request,
-        "quick_albums_page",
-        quick_albums_page,
-        albums_total,
-        ALBUMS_PAGE_SIZE,
-    )
-    albums = connection.execute(
-        """
-        SELECT artist, album, COUNT(*) AS tracks
-        FROM tracks
-        GROUP BY artist, album
-        ORDER BY MAX(uploaded_at) DESC
-        LIMIT ? OFFSET ?
-        """,
-        (
-            ALBUMS_PAGE_SIZE,
-            (albums_pagination["page"] - 1) * ALBUMS_PAGE_SIZE,
-        ),
-    ).fetchall()
+    def parse_letters(raw: str) -> list[str]:
+        letters = []
+        for part in raw.split(","):
+            value = part.strip()
+            if len(value) == 1 and value.isalpha() and value.isascii() and value not in letters:
+                letters.append(value)
+        return letters
 
-    if table_exists(connection, "track_uploaders"):
-        uploaders_total = connection.execute(
-            """
-            SELECT COUNT(*) AS total
-            FROM (SELECT username FROM track_uploaders GROUP BY username)
-            """,
-        ).fetchone()["total"]
-        uploaders_pagination = build_pagination(
-            request,
-            "quick_uploaders_page",
-            quick_uploaders_page,
-            uploaders_total,
-            UPLOADERS_PAGE_SIZE,
-        )
-        uploaders = connection.execute(
-            """
-            SELECT username AS uploader, COUNT(DISTINCT track_id) AS tracks
-            FROM track_uploaders
-            GROUP BY username
-            ORDER BY tracks DESC, username COLLATE NOCASE ASC
-            LIMIT ? OFFSET ?
-            """,
-            (
-                UPLOADERS_PAGE_SIZE,
-                (uploaders_pagination["page"] - 1) * UPLOADERS_PAGE_SIZE,
-            ),
-        ).fetchall()
-    else:
-        uploaders_total = connection.execute(
-            """
-            SELECT COUNT(*) AS total
-            FROM (SELECT uploader FROM tracks GROUP BY uploader)
-            """,
-        ).fetchone()["total"]
-        uploaders_pagination = build_pagination(
-            request,
-            "quick_uploaders_page",
-            quick_uploaders_page,
-            uploaders_total,
-            UPLOADERS_PAGE_SIZE,
-        )
-        uploaders = connection.execute(
-            """
-            SELECT uploader, COUNT(*) AS tracks
+    tracks_letters = parse_letters(tracks_letters_raw)
+    albums_letters = parse_letters(albums_letters_raw)
+    artists_letters = parse_letters(artists_letters_raw)
+
+    def build_track_tab() -> dict[str, Any]:
+        where = ["1=1"]
+        params: list[Any] = []
+        if tracks_q:
+            where.append("search_blob_norm LIKE ?")
+            params.append(f"%{normalize_search_value(tracks_q)}%")
+        if tracks_letters:
+            clauses = []
+            for letter in tracks_letters:
+                clauses.append("title_norm LIKE ?")
+                params.append(f"{letter.lower()}%")
+            where.append(f"({' OR '.join(clauses)})")
+        sql_where = " AND ".join(where)
+        total = connection.execute(f"SELECT COUNT(*) AS total FROM tracks WHERE {sql_where}", params).fetchone()["total"]
+        pagination = build_pagination(request, "quick_tracks_page", tracks_page, total, 48)
+        rows = connection.execute(
+            f"""
+            SELECT id, title, artist, album, cover_path
             FROM tracks
-            GROUP BY uploader
-            ORDER BY tracks DESC, uploader COLLATE NOCASE ASC
+            WHERE {sql_where}
+            ORDER BY title COLLATE NOCASE ASC, artist COLLATE NOCASE ASC
             LIMIT ? OFFSET ?
             """,
-            (
-                UPLOADERS_PAGE_SIZE,
-                (uploaders_pagination["page"] - 1) * UPLOADERS_PAGE_SIZE,
-            ),
+            (*params, 48, (pagination["page"] - 1) * 48),
         ).fetchall()
+        return {
+            "items": [
+                {
+                    "title": str(row["title"]),
+                    "artist": str(row["artist"]),
+                    "album": str(row["album"]),
+                    "cover_url": f"/covers/{row['cover_path']}",
+                    "href": url_with_lang(request, q=str(row["title"])),
+                }
+                for row in rows
+            ],
+            "q": tracks_q,
+            "letters": tracks_letters,
+            "pagination": pagination,
+        }
+
+    def build_album_tab() -> dict[str, Any]:
+        where = ["1=1"]
+        params: list[Any] = []
+        if albums_q:
+            where.append("(album_norm LIKE ? OR artist_norm LIKE ?)")
+            value = f"%{normalize_search_value(albums_q)}%"
+            params.extend([value, value])
+        if albums_letters:
+            clauses = []
+            for letter in albums_letters:
+                clauses.append("album_norm LIKE ?")
+                params.append(f"{letter.lower()}%")
+            where.append(f"({' OR '.join(clauses)})")
+        sql_where = " AND ".join(where)
+        total = connection.execute(
+            f"""
+            SELECT COUNT(*) AS total
+            FROM (SELECT artist, album FROM tracks WHERE {sql_where} GROUP BY artist, album)
+            """,
+            params,
+        ).fetchone()["total"]
+        pagination = build_pagination(request, "quick_albums_page", albums_page, total, 36)
+        rows = connection.execute(
+            f"""
+            SELECT artist, album, MIN(cover_path) AS cover_path, COUNT(*) AS tracks
+            FROM tracks
+            WHERE {sql_where}
+            GROUP BY artist, album
+            ORDER BY album COLLATE NOCASE ASC, artist COLLATE NOCASE ASC
+            LIMIT ? OFFSET ?
+            """,
+            (*params, 36, (pagination["page"] - 1) * 36),
+        ).fetchall()
+        return {
+            "items": [
+                {
+                    "artist": str(row["artist"]),
+                    "album": str(row["album"]),
+                    "tracks": int(row["tracks"]),
+                    "cover_url": f"/covers/{row['cover_path']}",
+                    "href": url_with_lang(request, artist=str(row["artist"]), album=str(row["album"])),
+                }
+                for row in rows
+            ],
+            "q": albums_q,
+            "letters": albums_letters,
+            "pagination": pagination,
+        }
+
+    def build_artist_tab() -> dict[str, Any]:
+        where = ["1=1"]
+        params: list[Any] = []
+        if artists_q:
+            where.append("artist_norm LIKE ?")
+            params.append(f"%{normalize_search_value(artists_q)}%")
+        if artists_letters:
+            clauses = []
+            for letter in artists_letters:
+                clauses.append("artist_norm LIKE ?")
+                params.append(f"{letter.lower()}%")
+            where.append(f"({' OR '.join(clauses)})")
+        sql_where = " AND ".join(where)
+        total = connection.execute(
+            f"SELECT COUNT(*) AS total FROM (SELECT artist FROM tracks WHERE {sql_where} GROUP BY artist)",
+            params,
+        ).fetchone()["total"]
+        pagination = build_pagination(request, "quick_artists_page", artists_page, total, 36)
+        rows = connection.execute(
+            f"""
+            SELECT
+                t.artist AS artist,
+                COUNT(*) AS tracks,
+                (
+                    SELECT t2.cover_path
+                    FROM tracks t2
+                    WHERE t2.artist = t.artist
+                    GROUP BY t2.album
+                    ORDER BY COUNT(*) DESC, MAX(t2.uploaded_at) DESC
+                    LIMIT 1
+                ) AS cover_path
+            FROM tracks t
+            WHERE {sql_where}
+            GROUP BY t.artist
+            ORDER BY t.artist COLLATE NOCASE ASC
+            LIMIT ? OFFSET ?
+            """,
+            (*params, 36, (pagination["page"] - 1) * 36),
+        ).fetchall()
+        return {
+            "items": [
+                {
+                    "artist": str(row["artist"]),
+                    "tracks": int(row["tracks"]),
+                    "cover_url": f"/covers/{row['cover_path']}" if row["cover_path"] else "",
+                    "href": url_with_lang(request, artist=str(row["artist"])),
+                }
+                for row in rows
+            ],
+            "q": artists_q,
+            "letters": artists_letters,
+            "pagination": pagination,
+        }
+
     return {
-        "artists": {"items": artists, "pagination": artists_pagination},
-        "albums": {"items": albums, "pagination": albums_pagination},
-        "uploaders": {"items": uploaders, "pagination": uploaders_pagination},
+        "active_tab": quick_tab,
+        "letters": [chr(value) for value in range(ord("A"), ord("Z") + 1)],
+        "tracks": build_track_tab(),
+        "albums": build_album_tab(),
+        "artists": build_artist_tab(),
     }
 
 

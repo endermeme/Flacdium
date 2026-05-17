@@ -353,6 +353,38 @@ function fetchPagerContent(link) {
     });
 }
 
+function fetchQuickfindUrl(href) {
+  if (!href) return;
+  fetch(href, {
+    headers: {
+      "X-Requested-With": "XMLHttpRequest",
+    },
+    credentials: "same-origin",
+  })
+    .then((response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.text();
+    })
+    .then((html) => {
+      const replaced = replaceQuickfindFromHtml(html, href);
+      if (!replaced) window.location.href = href;
+    })
+    .catch(() => {
+      window.location.href = href;
+    });
+}
+
+function hrefFromForm(form) {
+  const formData = new FormData(form);
+  const params = new URLSearchParams();
+  formData.forEach((value, key) => {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (text !== "") params.set(key, text);
+  });
+  const href = `/?${params.toString()}`;
+  return href;
+}
+
 authTabs.forEach((tab) => {
   tab.addEventListener("click", () => openAuth(tab.dataset.authTab || "login"));
 });
@@ -486,6 +518,50 @@ document.addEventListener("change", (event) => {
   syncSelectionButtons();
 });
 
+let quickfindSearchDebounce = 0;
+document.addEventListener("input", (event) => {
+  const input = event.target.closest("[data-quickfind-live-search] input[type='text']");
+  if (!input) return;
+  const form = input.closest("[data-quickfind-live-search]");
+  if (!form) return;
+  window.clearTimeout(quickfindSearchDebounce);
+  quickfindSearchDebounce = window.setTimeout(() => {
+    fetchQuickfindUrl(hrefFromForm(form));
+  }, 170);
+});
+
+document.addEventListener("click", (event) => {
+  const letterButton = event.target.closest("[data-quickfind-letter]");
+  if (letterButton) {
+    const form = letterButton.closest("[data-quickfind-letters]");
+    if (!form) return;
+    const hidden = form.querySelector("[data-quickfind-letters-input]");
+    if (!hidden) return;
+    const value = (letterButton.dataset.quickfindLetter || "").trim().toUpperCase();
+    if (!value) return;
+    const current = hidden.value
+      .split(",")
+      .map((part) => part.trim())
+      .filter((part) => part);
+    const next = current.includes(value)
+      ? current.filter((part) => part !== value)
+      : [...current, value];
+    hidden.value = next.join(",");
+    fetchQuickfindUrl(hrefFromForm(form));
+    return;
+  }
+
+  const clearButton = event.target.closest("[data-quickfind-letter-clear]");
+  if (clearButton) {
+    const form = clearButton.closest("[data-quickfind-letters]");
+    if (!form) return;
+    const hidden = form.querySelector("[data-quickfind-letters-input]");
+    if (!hidden) return;
+    hidden.value = "";
+    fetchQuickfindUrl(hrefFromForm(form));
+  }
+});
+
 primeSelectionLabels();
 syncSelectionButtons();
 
@@ -545,6 +621,13 @@ if (body.dataset.authOpen === "1") {
 
 if (window.XMLHttpRequest && window.FormData) {
   document.addEventListener("submit", (event) => {
+    const quickJumpForm = event.target.closest("[data-quickfind-jump]");
+    if (quickJumpForm) {
+      event.preventDefault();
+      fetchQuickfindUrl(hrefFromForm(quickJumpForm));
+      return;
+    }
+
     const uploadForm = event.target.closest("[data-upload-form]");
     if (!uploadForm) return;
     if (uploadInFlight) {
