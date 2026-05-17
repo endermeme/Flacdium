@@ -1208,6 +1208,12 @@ select:disabled {
 .filter-actions {
   gap: 6px;
   margin-top: 4px;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.filter-actions .toolbar-quickfind {
+  margin-left: 0;
 }
 
 .content-grid {

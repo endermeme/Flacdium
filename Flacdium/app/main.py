@@ -444,7 +444,7 @@ TEXT: dict[str, dict[str, str]] = {
         "bulk_flac": "bulk flac",
         "zip_drop": "zip upload",
         "rights_confirmed": "i know what tf i'm doing rn",
-        "upload_note": "flac only | requires artist, album, title, tracknumber, date, embedded cover art | looking for authentic, emotional, DIY-oriented music: indie bands, acoustic projects, alt-pop, emo, mellow rock, expressive vocal-focused tracks | please do not upload long mixes, edm, vinahouse, or instrumental-only releases :((( | regular users: max 50 flac files per upload or 1 zip per upload | admin: upload count and file count are not capped",
+        "upload_note": "• Only accepting FLAC files with complete artist, album, title, track number, date, and embedded cover art.Preference for indie/acoustic/alt-pop/emo/mellow rock; please no long mixes, EDM, Vinahouse, or instrumental music.",
         "upload_cta": "push to index",
         "upload_progress_title": "upload progress",
         "upload_progress_uploading": "uploading files...",
