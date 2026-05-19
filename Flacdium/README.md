@@ -29,6 +29,8 @@ docker compose up --build
 
 Open `http://127.0.0.1:8000`.
 
+Ngrok is now dockerized as a sidecar service. Set `NGROK_AUTHTOKEN` in `.env` before starting compose so admin can create temporary public links from `/admin?tab=ngrok`.
+
 ## Environment
 
 Copy `.env.example` to `.env` and set your own values there. Docker Compose loads `.env` automatically.
@@ -36,6 +38,8 @@ Copy `.env.example` to `.env` and set your own values there. Docker Compose load
 Set `FLACDIUM_ADMIN_USERNAME` and `FLACDIUM_ADMIN_PASSWORD` yourself if you want automatic admin bootstrap on a fresh server.
 `FLACDIUM_SECRET` is mandatory. The app now refuses startup if the secret is missing or left on the old dev value.
 Set `FLACDIUM_TRUST_PROXY=1` only when the app is actually behind a reverse proxy that you control.
+`NGROK_AUTHTOKEN` is required for the ngrok service.
+`FLACDIUM_NGROK_API_URL` should stay `http://ngrok:4040` when using docker compose.
 
 ## Ingest rules
 
