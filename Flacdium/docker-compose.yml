@@ -5,7 +5,7 @@ services:
     env_file:
       - .env
     environment:
-      FLACDIUM_NGROK_API_URL: ${FLACDIUM_NGROK_API_URL:-http://ngrok:4040}
+      FLACDIUM_NGROK_API_URL: ${FLACDIUM_NGROK_API_URL:-http://flacdium-ngrok:4040}
     init: true
     ports:
       - "8000:8000"

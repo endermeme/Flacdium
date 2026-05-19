@@ -39,7 +39,7 @@ Set `FLACDIUM_ADMIN_USERNAME` and `FLACDIUM_ADMIN_PASSWORD` yourself if you want
 `FLACDIUM_SECRET` is mandatory. The app now refuses startup if the secret is missing or left on the old dev value.
 Set `FLACDIUM_TRUST_PROXY=1` only when the app is actually behind a reverse proxy that you control.
 `NGROK_AUTHTOKEN` is required for the ngrok service.
-`FLACDIUM_NGROK_API_URL` should stay `http://ngrok:4040` when using docker compose.
+`FLACDIUM_NGROK_API_URL` should stay `http://flacdium-ngrok:4040` when using docker compose.
 
 ## Ingest rules
 
