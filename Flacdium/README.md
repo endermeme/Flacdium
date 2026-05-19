@@ -29,7 +29,10 @@ docker compose up --build
 
 Open `http://127.0.0.1:8000`.
 
-Ngrok is now dockerized as a sidecar service. Set `NGROK_AUTHTOKEN` in `.env` before starting compose so admin can create temporary public links from `/admin?tab=ngrok`.
+Tailscale is dockerized as a sidecar service. Set `TS_AUTHKEY` in `.env` before starting compose.
+After first boot, enable serve/funnel once:
+`docker compose exec tailscale tailscale funnel --bg http://flacdium:8000`
+Then set `FLACDIUM_TAILSCALE_PUBLIC_BASE_URL` to your Tailscale Funnel URL so admin can mint random temporary links from `/admin?tab=ngrok`.
 
 ## Environment
 
@@ -38,8 +41,8 @@ Copy `.env.example` to `.env` and set your own values there. Docker Compose load
 Set `FLACDIUM_ADMIN_USERNAME` and `FLACDIUM_ADMIN_PASSWORD` yourself if you want automatic admin bootstrap on a fresh server.
 `FLACDIUM_SECRET` is mandatory. The app now refuses startup if the secret is missing or left on the old dev value.
 Set `FLACDIUM_TRUST_PROXY=1` only when the app is actually behind a reverse proxy that you control.
-`NGROK_AUTHTOKEN` is required for the ngrok service.
-`FLACDIUM_NGROK_API_URL` should stay `http://flacdium-ngrok:4040` when using docker compose.
+`TS_AUTHKEY` is required for the tailscale service.
+`FLACDIUM_TAILSCALE_PUBLIC_BASE_URL` should be your public Funnel URL, for example `https://flacdium-ts.your-tailnet.ts.net`.
 
 ## Ingest rules
 

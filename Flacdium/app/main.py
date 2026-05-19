@@ -17,7 +17,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, quote, urlencode, urlparse
-from urllib.request import Request as UrlRequest, urlopen
+from urllib.request import urlopen
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -108,7 +108,7 @@ def env_float(name: str, default: float) -> float:
 SECRET_KEY = (os.getenv("FLACDIUM_SECRET") or "").strip()
 OPENCELLID_API_KEY = os.getenv("OPENCELLID_API_KEY", "")
 OPENCELLID_API_URL = os.getenv("OPENCELLID_API_URL", "https://opencellid.org/cell/get")
-NGROK_API_URL = (os.getenv("FLACDIUM_NGROK_API_URL") or "http://127.0.0.1:4040").rstrip("/")
+TAILSCALE_PUBLIC_BASE_URL = (os.getenv("FLACDIUM_TAILSCALE_PUBLIC_BASE_URL") or "").strip().rstrip("/")
 ADMIN_USERNAME = (os.getenv("FLACDIUM_ADMIN_USERNAME") or "").strip()
 ADMIN_PASSWORD = os.getenv("FLACDIUM_ADMIN_PASSWORD", "")
 TRUST_PROXY = env_bool("FLACDIUM_TRUST_PROXY", False)
@@ -381,7 +381,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_tab_sessions": "sessions",
         "admin_tab_tracks": "nhạc",
         "admin_tab_reviews": "duyệt",
-        "admin_tab_ngrok": "ngrok",
+        "admin_tab_ngrok": "tailscale",
         "admin_select": "chọn",
         "admin_select_all": "chọn trang",
         "admin_music_file": "bài nhạc",
@@ -404,7 +404,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_review_approve": "duyệt nhập",
         "admin_review_reject": "loại",
         "admin_review_empty": "không có file chờ duyệt",
-        "admin_ngrok_title": "chia sẻ qua ngrok",
+        "admin_ngrok_title": "chia sẻ qua tailscale",
         "admin_ngrok_target": "đích nội bộ",
         "admin_ngrok_target_hint": "ví dụ: http://127.0.0.1:8000",
         "admin_ngrok_proto": "giao thức",
@@ -418,15 +418,15 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_ngrok_actions": "thao tác",
         "admin_ngrok_stop": "tắt",
         "admin_ngrok_remove": "xóa",
-        "admin_ngrok_empty": "chưa có link ngrok",
+        "admin_ngrok_empty": "chưa có link tailscale",
         "admin_ngrok_running": "đang mở",
         "admin_ngrok_stopped": "đã tắt",
         "admin_ngrok_expired": "hết hạn",
         "admin_ngrok_error": "lỗi",
-        "admin_ngrok_agent_unreachable": "không kết nối được ngrok agent (mở ngrok trước, ví dụ: ngrok start --all)",
-        "admin_ngrok_created": "đã tạo link ngrok",
-        "admin_ngrok_stopped_notice": "đã tắt link ngrok",
-        "admin_ngrok_removed_notice": "đã xóa link ngrok",
+        "admin_ngrok_agent_unreachable": "thiếu FLACDIUM_TAILSCALE_PUBLIC_BASE_URL hoặc tailscale chưa cấu hình funnel",
+        "admin_ngrok_created": "đã tạo link tailscale",
+        "admin_ngrok_stopped_notice": "đã tắt link tailscale",
+        "admin_ngrok_removed_notice": "đã xóa link tailscale",
         "possible_duplicate_note": "các case trùng theo metadata đang bị chặn nhẹ để tránh up lặp",
         "storage_note": "dedupe hiện chặn file hash trùng và slot album trùng; tối ưu mạnh hơn nên bàn thêm",
         "system_panel": "hệ thống",
@@ -642,7 +642,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_tab_sessions": "sessions",
         "admin_tab_tracks": "tracks",
         "admin_tab_reviews": "review",
-        "admin_tab_ngrok": "ngrok",
+        "admin_tab_ngrok": "tailscale",
         "admin_select": "select",
         "admin_select_all": "select page",
         "admin_music_file": "track",
@@ -665,7 +665,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_review_approve": "approve import",
         "admin_review_reject": "reject",
         "admin_review_empty": "no files pending review",
-        "admin_ngrok_title": "ngrok sharing",
+        "admin_ngrok_title": "tailscale sharing",
         "admin_ngrok_target": "internal target",
         "admin_ngrok_target_hint": "example: http://127.0.0.1:8000",
         "admin_ngrok_proto": "protocol",
@@ -679,15 +679,15 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_ngrok_actions": "actions",
         "admin_ngrok_stop": "stop",
         "admin_ngrok_remove": "remove",
-        "admin_ngrok_empty": "no ngrok links",
+        "admin_ngrok_empty": "no tailscale links",
         "admin_ngrok_running": "running",
         "admin_ngrok_stopped": "stopped",
         "admin_ngrok_expired": "expired",
         "admin_ngrok_error": "error",
-        "admin_ngrok_agent_unreachable": "cannot reach ngrok agent (start ngrok first, e.g. ngrok start --all)",
-        "admin_ngrok_created": "ngrok link created",
-        "admin_ngrok_stopped_notice": "ngrok link stopped",
-        "admin_ngrok_removed_notice": "ngrok link removed",
+        "admin_ngrok_agent_unreachable": "missing FLACDIUM_TAILSCALE_PUBLIC_BASE_URL or tailscale funnel is not configured",
+        "admin_ngrok_created": "tailscale link created",
+        "admin_ngrok_stopped_notice": "tailscale link stopped",
+        "admin_ngrok_removed_notice": "tailscale link removed",
         "possible_duplicate_note": "metadata duplicates are blocked softly to avoid repeated uploads",
         "storage_note": "dedupe currently blocks exact hashes and duplicate album slots; heavier optimization needs policy discussion",
         "system_panel": "system",
@@ -3626,25 +3626,14 @@ def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[
     }
 
 
-def ngrok_api_request(path: str, method: str = "GET", payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    url = f"{NGROK_API_URL}{path}"
-    data = None
-    headers = {"Accept": "application/json"}
-    if payload is not None:
-        data = json.dumps(payload).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    request_obj = UrlRequest(url, data=data, method=method, headers=headers)
-    with urlopen(request_obj, timeout=6) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
 def ngrok_stop_tunnel(tunnel_name: str) -> None:
-    if not tunnel_name:
-        return
-    try:
-        ngrok_api_request(f"/api/tunnels/{quote(tunnel_name, safe='')}", method="DELETE")
-    except Exception:  # noqa: BLE001
-        return
+    return
+
+
+def tailscale_public_base_url(request: Request) -> str:
+    if TAILSCALE_PUBLIC_BASE_URL:
+        return TAILSCALE_PUBLIC_BASE_URL.rstrip("/")
+    return ""
 
 
 def cleanup_expired_ngrok_links(connection: sqlite3.Connection) -> None:
@@ -4003,6 +3992,35 @@ async def home(request: Request) -> HTMLResponse:
         auth_open=request.query_params.get("auth") == "1",
         auth_mode=auth_mode,
     )
+
+
+@app.get("/share/{token}")
+async def share_entry(request: Request, token: str) -> RedirectResponse:
+    safe_token = re.sub(r"[^a-z0-9]", "", token.strip().lower())
+    if not safe_token:
+        raise HTTPException(status_code=404, detail="invalid link")
+    tunnel_name = f"ts-{safe_token}"
+    now_iso = now_utc().isoformat()
+    with get_db() as connection:
+        row = connection.execute(
+            """
+            SELECT * FROM ngrok_links
+            WHERE tunnel_name = ? AND status = 'running'
+            ORDER BY id DESC LIMIT 1
+            """,
+            (tunnel_name,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="link expired")
+        if str(row["expires_at"] or "") and str(row["expires_at"]) <= now_iso:
+            connection.execute(
+                "UPDATE ngrok_links SET status = 'expired', stopped_at = ? WHERE id = ?",
+                (now_iso, int(row["id"])),
+            )
+            raise HTTPException(status_code=404, detail="link expired")
+    lang = get_lang(request)
+    response = RedirectResponse(f"/?lang={lang}", status_code=303)
+    return response
 
 
 @app.get("/login")
@@ -4916,18 +4934,13 @@ async def admin_create_ngrok_link(
     expire_minutes = parse_ngrok_expire_minutes(expires_minutes)
     created_at = now_utc()
     expires_at = created_at + timedelta(minutes=expire_minutes)
-    tunnel_name = f"flacdium-{admin_user['username']}-{int(created_at.timestamp())}"
+    token = secrets.token_urlsafe(12).replace("-", "").replace("_", "")[:18].lower()
+    tunnel_name = f"ts-{token}"
     try:
-        payload = {
-            "name": tunnel_name,
-            "addr": target,
-            "proto": "http",
-            "inspect": False,
-        }
-        result = ngrok_api_request("/api/tunnels", method="POST", payload=payload)
-        public_url = str(result.get("public_url") or "").strip()
-        if not public_url:
-            raise RuntimeError("missing public_url")
+        base_url = tailscale_public_base_url(request)
+        if not base_url:
+            raise RuntimeError("missing_base_url")
+        public_url = f"{base_url}/share/{token}"
         with get_db() as connection:
             cleanup_expired_ngrok_links(connection)
             connection.execute(

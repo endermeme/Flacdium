@@ -5,7 +5,7 @@ services:
     env_file:
       - .env
     environment:
-      FLACDIUM_NGROK_API_URL: ${FLACDIUM_NGROK_API_URL:-http://flacdium-ngrok:4040}
+      FLACDIUM_TAILSCALE_PUBLIC_BASE_URL: ${FLACDIUM_TAILSCALE_PUBLIC_BASE_URL:-}
     init: true
     ports:
       - "8000:8000"
@@ -21,14 +21,21 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
     depends_on:
-      - ngrok
+      - tailscale
 
-  ngrok:
-    image: ngrok/ngrok:latest
-    container_name: flacdium-ngrok
-    command: ["start", "--none", "--log=stdout"]
+  tailscale:
+    image: tailscale/tailscale:stable
+    container_name: flacdium-tailscale
+    hostname: flacdium-ts
     environment:
-      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
-    expose:
-      - "4040"
+      TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_EXTRA_ARGS: --accept-routes
+    volumes:
+      - ${FLACDIUM_STATE_DIR:-/var/lib/flacdium}/tailscale:/var/lib/tailscale
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
     restart: unless-stopped
