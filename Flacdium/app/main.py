@@ -4921,9 +4921,8 @@ async def admin_create_ngrok_link(
         payload = {
             "name": tunnel_name,
             "addr": target,
-            "proto": proto_value,
+            "proto": "http",
             "inspect": False,
-            "bind_tls": True if proto_value == "https" else False,
         }
         result = ngrok_api_request("/api/tunnels", method="POST", payload=payload)
         public_url = str(result.get("public_url") or "").strip()
