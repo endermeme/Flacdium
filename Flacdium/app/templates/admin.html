@@ -41,6 +41,7 @@
         <a href="/admin?lang={{ lang }}&tab=sessions" class="admin-tab {% if active_tab == 'sessions' %}is-active{% endif %}">{{ t["admin_tab_sessions"] }}</a>
         <a href="/admin?lang={{ lang }}&tab=tracks" class="admin-tab {% if active_tab == 'tracks' %}is-active{% endif %}">{{ t["admin_tab_tracks"] }}</a>
         <a href="/admin?lang={{ lang }}&tab=reviews" class="admin-tab {% if active_tab == 'reviews' %}is-active{% endif %}">{{ t["admin_tab_reviews"] }}</a>
+        <a href="/admin?lang={{ lang }}&tab=ngrok" class="admin-tab {% if active_tab == 'ngrok' %}is-active{% endif %}">{{ t["admin_tab_ngrok"] }}</a>
       </div>
 
       {% if notice %}
@@ -413,6 +414,82 @@
               </div>
             </div>
           </form>
+        {% endif %}
+
+        {% if active_tab == "ngrok" %}
+          <div class="admin-block admin-section admin-section-tab">
+            <div class="admin-section-head">
+              <strong>{{ t["admin_ngrok_title"] }}</strong>
+            </div>
+            <div class="admin-section-body">
+              <form class="filter-panel admin-filter-panel" method="post" action="/admin/ngrok/create">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="tab" value="ngrok">
+                <div class="filter-grid admin-track-filter-grid">
+                  <label>
+                    <span>{{ t["admin_ngrok_target"] }}</span>
+                    <input type="text" name="target_url" value="http://127.0.0.1:8000" placeholder="{{ t['admin_ngrok_target_hint'] }}">
+                  </label>
+                  <label>
+                    <span>{{ t["admin_ngrok_proto"] }}</span>
+                    <select name="proto">
+                      <option value="http">http</option>
+                      <option value="https">https</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>{{ t["admin_ngrok_expires"] }}</span>
+                    <input type="number" name="expires_minutes" min="5" max="10080" value="60">
+                  </label>
+                </div>
+                <div class="filter-actions">
+                  <button type="submit">{{ t["admin_ngrok_create"] }}</button>
+                </div>
+              </form>
+
+              <div class="table-scroll admin-table-scroll">
+                <table class="library-table admin-table">
+                  <thead>
+                    <tr>
+                      <th>{{ t["admin_ngrok_public_url"] }}</th>
+                      <th>{{ t["admin_ngrok_target"] }}</th>
+                      <th>{{ t["admin_ngrok_status"] }}</th>
+                      <th>{{ t["admin_ngrok_created_by"] }}</th>
+                      <th>{{ t["admin_ngrok_created_at"] }}</th>
+                      <th>{{ t["admin_ngrok_expires_at"] }}</th>
+                      <th>{{ t["admin_ngrok_actions"] }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for item in ngrok_links %}
+                      <tr>
+                        <td><a href="{{ item['public_url'] }}" target="_blank" rel="noopener noreferrer">{{ item["public_url"] }}</a></td>
+                        <td>{{ item["target_url"] }}</td>
+                        <td>{{ item["status_label"] }}{% if item["error_message"] %} | {{ item["error_message"] }}{% endif %}</td>
+                        <td>{{ item["created_by"] }}</td>
+                        <td>{{ item["created_label"] }}</td>
+                        <td>{{ item["expires_label"] }}</td>
+                        <td>
+                          <form method="post" action="/admin/ngrok/{{ item['id'] }}/stop" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="tab" value="ngrok">
+                            <button type="submit" class="mini-button">{{ t["admin_ngrok_stop"] }}</button>
+                          </form>
+                          <form method="post" action="/admin/ngrok/{{ item['id'] }}/remove" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="tab" value="ngrok">
+                            <button type="submit" class="mini-button danger-button">{{ t["admin_ngrok_remove"] }}</button>
+                          </form>
+                        </td>
+                      </tr>
+                    {% else %}
+                      <tr><td colspan="7" class="empty-row">{{ t["admin_ngrok_empty"] }}</td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         {% endif %}
       </div>
     </section>

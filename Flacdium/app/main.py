@@ -16,8 +16,8 @@ from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlparse
-from urllib.request import urlopen
+from urllib.parse import parse_qsl, quote, urlencode, urlparse
+from urllib.request import Request as UrlRequest, urlopen
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -108,6 +108,7 @@ def env_float(name: str, default: float) -> float:
 SECRET_KEY = (os.getenv("FLACDIUM_SECRET") or "").strip()
 OPENCELLID_API_KEY = os.getenv("OPENCELLID_API_KEY", "")
 OPENCELLID_API_URL = os.getenv("OPENCELLID_API_URL", "https://opencellid.org/cell/get")
+NGROK_API_URL = (os.getenv("FLACDIUM_NGROK_API_URL") or "http://127.0.0.1:4040").rstrip("/")
 ADMIN_USERNAME = (os.getenv("FLACDIUM_ADMIN_USERNAME") or "").strip()
 ADMIN_PASSWORD = os.getenv("FLACDIUM_ADMIN_PASSWORD", "")
 TRUST_PROXY = env_bool("FLACDIUM_TRUST_PROXY", False)
@@ -250,7 +251,7 @@ TEXT: dict[str, dict[str, str]] = {
         "spectrum_error": "không tạo được phổ cho bài này",
         "genre_missing": "chưa gắn thể loại",
         "disc": "đĩa",
-        "download_label": "flac",
+        "download_label": "tải",
         "download_many_flac": "Tải Flacs",
         "download_zip": "Tải ZIP",
         "preview_label": "nghe",
@@ -380,6 +381,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_tab_sessions": "sessions",
         "admin_tab_tracks": "nhạc",
         "admin_tab_reviews": "duyệt",
+        "admin_tab_ngrok": "ngrok",
         "admin_select": "chọn",
         "admin_select_all": "chọn trang",
         "admin_music_file": "bài nhạc",
@@ -402,6 +404,29 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_review_approve": "duyệt nhập",
         "admin_review_reject": "loại",
         "admin_review_empty": "không có file chờ duyệt",
+        "admin_ngrok_title": "chia sẻ qua ngrok",
+        "admin_ngrok_target": "đích nội bộ",
+        "admin_ngrok_target_hint": "ví dụ: http://127.0.0.1:8000",
+        "admin_ngrok_proto": "giao thức",
+        "admin_ngrok_expires": "hết hạn (phút)",
+        "admin_ngrok_create": "tạo link",
+        "admin_ngrok_public_url": "public url",
+        "admin_ngrok_created_by": "tạo bởi",
+        "admin_ngrok_created_at": "tạo lúc",
+        "admin_ngrok_expires_at": "hết hạn lúc",
+        "admin_ngrok_status": "trạng thái",
+        "admin_ngrok_actions": "thao tác",
+        "admin_ngrok_stop": "tắt",
+        "admin_ngrok_remove": "xóa",
+        "admin_ngrok_empty": "chưa có link ngrok",
+        "admin_ngrok_running": "đang mở",
+        "admin_ngrok_stopped": "đã tắt",
+        "admin_ngrok_expired": "hết hạn",
+        "admin_ngrok_error": "lỗi",
+        "admin_ngrok_agent_unreachable": "không kết nối được ngrok agent (mở ngrok trước, ví dụ: ngrok start --all)",
+        "admin_ngrok_created": "đã tạo link ngrok",
+        "admin_ngrok_stopped_notice": "đã tắt link ngrok",
+        "admin_ngrok_removed_notice": "đã xóa link ngrok",
         "possible_duplicate_note": "các case trùng theo metadata đang bị chặn nhẹ để tránh up lặp",
         "storage_note": "dedupe hiện chặn file hash trùng và slot album trùng; tối ưu mạnh hơn nên bàn thêm",
         "system_panel": "hệ thống",
@@ -617,6 +642,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_tab_sessions": "sessions",
         "admin_tab_tracks": "tracks",
         "admin_tab_reviews": "review",
+        "admin_tab_ngrok": "ngrok",
         "admin_select": "select",
         "admin_select_all": "select page",
         "admin_music_file": "track",
@@ -639,6 +665,29 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_review_approve": "approve import",
         "admin_review_reject": "reject",
         "admin_review_empty": "no files pending review",
+        "admin_ngrok_title": "ngrok sharing",
+        "admin_ngrok_target": "internal target",
+        "admin_ngrok_target_hint": "example: http://127.0.0.1:8000",
+        "admin_ngrok_proto": "protocol",
+        "admin_ngrok_expires": "expires in (minutes)",
+        "admin_ngrok_create": "create link",
+        "admin_ngrok_public_url": "public url",
+        "admin_ngrok_created_by": "created by",
+        "admin_ngrok_created_at": "created at",
+        "admin_ngrok_expires_at": "expires at",
+        "admin_ngrok_status": "status",
+        "admin_ngrok_actions": "actions",
+        "admin_ngrok_stop": "stop",
+        "admin_ngrok_remove": "remove",
+        "admin_ngrok_empty": "no ngrok links",
+        "admin_ngrok_running": "running",
+        "admin_ngrok_stopped": "stopped",
+        "admin_ngrok_expired": "expired",
+        "admin_ngrok_error": "error",
+        "admin_ngrok_agent_unreachable": "cannot reach ngrok agent (start ngrok first, e.g. ngrok start --all)",
+        "admin_ngrok_created": "ngrok link created",
+        "admin_ngrok_stopped_notice": "ngrok link stopped",
+        "admin_ngrok_removed_notice": "ngrok link removed",
         "possible_duplicate_note": "metadata duplicates are blocked softly to avoid repeated uploads",
         "storage_note": "dedupe currently blocks exact hashes and duplicate album slots; heavier optimization needs policy discussion",
         "system_panel": "system",
@@ -839,6 +888,23 @@ def init_db() -> None:
             """
         )
         connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ngrok_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tunnel_name TEXT NOT NULL UNIQUE,
+                public_url TEXT NOT NULL,
+                proto TEXT NOT NULL DEFAULT 'http',
+                target_url TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'running',
+                error_message TEXT NOT NULL DEFAULT '',
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL DEFAULT '',
+                stopped_at TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_tracks_artist_album ON tracks (artist, album)"
         )
         connection.execute(
@@ -869,6 +935,12 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_review_items_status_time
             ON review_items (status, created_at DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ngrok_links_status_time
+            ON ngrok_links (status, created_at DESC)
             """
         )
         connection.execute(
@@ -3554,6 +3626,66 @@ def fetch_quick_links(connection: sqlite3.Connection, request: Request) -> dict[
     }
 
 
+def ngrok_api_request(path: str, method: str = "GET", payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    url = f"{NGROK_API_URL}{path}"
+    data = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request_obj = UrlRequest(url, data=data, method=method, headers=headers)
+    with urlopen(request_obj, timeout=6) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def ngrok_stop_tunnel(tunnel_name: str) -> None:
+    if not tunnel_name:
+        return
+    try:
+        ngrok_api_request(f"/api/tunnels/{quote(tunnel_name, safe='')}", method="DELETE")
+    except Exception:  # noqa: BLE001
+        return
+
+
+def cleanup_expired_ngrok_links(connection: sqlite3.Connection) -> None:
+    now_iso = now_utc().isoformat()
+    expired = connection.execute(
+        """
+        SELECT id, tunnel_name FROM ngrok_links
+        WHERE status = 'running' AND expires_at <> '' AND expires_at <= ?
+        """,
+        (now_iso,),
+    ).fetchall()
+    if not expired:
+        return
+    for row in expired:
+        ngrok_stop_tunnel(str(row["tunnel_name"]))
+        connection.execute(
+            """
+            UPDATE ngrok_links
+            SET status = 'expired', stopped_at = ?, error_message = ''
+            WHERE id = ?
+            """,
+            (now_iso, int(row["id"])),
+        )
+
+
+def fetch_admin_ngrok_links(connection: sqlite3.Connection, lang: str) -> list[dict[str, Any]]:
+    cleanup_expired_ngrok_links(connection)
+    rows = connection.execute(
+        "SELECT * FROM ngrok_links ORDER BY created_at DESC LIMIT 300",
+    ).fetchall()
+    t = text_for(lang)
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["created_label"] = human_datetime(str(row["created_at"] or ""))
+        item["expires_label"] = human_datetime(str(row["expires_at"] or ""))
+        item["status_label"] = t.get(f"admin_ngrok_{row['status']}", str(row["status"]))
+        items.append(item)
+    return items
+
+
 def fetch_admin_users(connection: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = connection.execute(
         """
@@ -3730,7 +3862,7 @@ def fetch_admin_reviews(connection: sqlite3.Connection, lang: str) -> list[dict[
 
 
 def normalize_admin_tab(raw_value: str | None) -> str:
-    return raw_value if raw_value in {"accounts", "sessions", "tracks", "reviews"} else "accounts"
+    return raw_value if raw_value in {"accounts", "sessions", "tracks", "reviews", "ngrok"} else "accounts"
 
 
 def admin_anchor(tab: str) -> str:
@@ -3750,6 +3882,7 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
         logs: list[dict[str, Any]] = []
         tracks: list[dict[str, Any]] = []
         reviews: list[dict[str, Any]] = []
+        ngrok_links: list[dict[str, Any]] = []
         logs_pagination: dict[str, Any] = {"total_items": 0, "page": 1, "total_pages": 1, "prev_url": "", "next_url": "", "filters": {"log_user": "", "date_from": "", "date_to": "", "log_sort": "newest"}}
         track_filters = {"track_q": "", "track_uploader": ""}
         if active_tab == "accounts":
@@ -3760,6 +3893,8 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
             tracks, track_filters = fetch_admin_tracks(connection, request, lang)
         elif active_tab == "reviews":
             reviews = fetch_admin_reviews(connection, lang)
+        elif active_tab == "ngrok":
+            ngrok_links = fetch_admin_ngrok_links(connection, lang)
     context = {
         "request": request,
         "lang": lang,
@@ -3775,6 +3910,7 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
         "log_filters": logs_pagination["filters"],
         "track_filters": track_filters,
         "reviews": reviews,
+        "ngrok_links": ngrok_links,
         "auth_open": False,
         "auth_mode": "login",
         "show_guest_notice": False,
@@ -4490,7 +4626,7 @@ async def spectrum_image(request: Request, track_id: int) -> FileResponse:
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request) -> HTMLResponse:
-    return render_admin(request)
+    return render_admin(request, notice=(request.query_params.get("notice") or "").strip())
 
 
 def admin_form_tab(form: Any, default: str) -> str:
@@ -4499,6 +4635,14 @@ def admin_form_tab(form: Any, default: str) -> str:
 
 def admin_redirect_target(lang: str, tab: str) -> str:
     return f"/admin?lang={lang}&tab={normalize_admin_tab(tab)}"
+
+
+def parse_ngrok_expire_minutes(raw_value: str) -> int:
+    try:
+        value = int((raw_value or "").strip())
+    except ValueError:
+        return 60
+    return min(max(value, 5), 7 * 24 * 60)
 
 
 def selected_ids_from_form(form: Any, field_name: str) -> list[int]:
@@ -4749,6 +4893,120 @@ async def admin_bulk_delete_tracks(request: Request) -> RedirectResponse:
         with get_db() as connection:
             delete_tracks_by_ids(connection, track_ids)
     response = RedirectResponse(admin_redirect_target(lang, tab), status_code=303)
+    set_lang_cookie(request, response, lang)
+    return response
+
+
+@app.post("/admin/ngrok/create")
+async def admin_create_ngrok_link(
+    request: Request,
+    csrf_token: str = Form(...),
+    tab: str = Form("ngrok"),
+    target_url: str = Form("http://127.0.0.1:8000"),
+    proto: str = Form("http"),
+    expires_minutes: str = Form("60"),
+) -> RedirectResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    admin_user = require_admin(request)
+    verify_csrf(request, csrf_token)
+    tab_value = normalize_admin_tab(tab)
+    target = (target_url or "").strip() or "http://127.0.0.1:8000"
+    proto_value = "https" if proto.strip().lower() == "https" else "http"
+    expire_minutes = parse_ngrok_expire_minutes(expires_minutes)
+    created_at = now_utc()
+    expires_at = created_at + timedelta(minutes=expire_minutes)
+    tunnel_name = f"flacdium-{admin_user['username']}-{int(created_at.timestamp())}"
+    try:
+        payload = {
+            "name": tunnel_name,
+            "addr": target,
+            "proto": proto_value,
+            "inspect": False,
+            "bind_tls": True if proto_value == "https" else False,
+        }
+        result = ngrok_api_request("/api/tunnels", method="POST", payload=payload)
+        public_url = str(result.get("public_url") or "").strip()
+        if not public_url:
+            raise RuntimeError("missing public_url")
+        with get_db() as connection:
+            cleanup_expired_ngrok_links(connection)
+            connection.execute(
+                """
+                INSERT INTO ngrok_links (
+                    tunnel_name, public_url, proto, target_url, status, error_message,
+                    created_by, created_at, expires_at, stopped_at
+                )
+                VALUES (?, ?, ?, ?, 'running', '', ?, ?, ?, '')
+                """,
+                (
+                    tunnel_name,
+                    public_url,
+                    proto_value,
+                    target,
+                    str(admin_user["username"]),
+                    created_at.isoformat(),
+                    expires_at.isoformat(),
+                ),
+            )
+        notice = t["admin_ngrok_created"]
+    except Exception:  # noqa: BLE001
+        notice = t["admin_ngrok_agent_unreachable"]
+    response = RedirectResponse(
+        f"{admin_redirect_target(lang, tab_value)}&notice={quote(notice)}",
+        status_code=303,
+    )
+    set_lang_cookie(request, response, lang)
+    return response
+
+
+@app.post("/admin/ngrok/{link_id}/stop")
+async def admin_stop_ngrok_link(
+    request: Request,
+    link_id: int,
+    csrf_token: str = Form(...),
+    tab: str = Form("ngrok"),
+) -> RedirectResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    require_admin(request)
+    verify_csrf(request, csrf_token)
+    with get_db() as connection:
+        row = connection.execute("SELECT * FROM ngrok_links WHERE id = ?", (link_id,)).fetchone()
+        if row is not None:
+            ngrok_stop_tunnel(str(row["tunnel_name"] or ""))
+            connection.execute(
+                "UPDATE ngrok_links SET status = 'stopped', stopped_at = ? WHERE id = ?",
+                (now_utc().isoformat(), link_id),
+            )
+    response = RedirectResponse(
+        f"{admin_redirect_target(lang, normalize_admin_tab(tab))}&notice={quote(t['admin_ngrok_stopped_notice'])}",
+        status_code=303,
+    )
+    set_lang_cookie(request, response, lang)
+    return response
+
+
+@app.post("/admin/ngrok/{link_id}/remove")
+async def admin_remove_ngrok_link(
+    request: Request,
+    link_id: int,
+    csrf_token: str = Form(...),
+    tab: str = Form("ngrok"),
+) -> RedirectResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    require_admin(request)
+    verify_csrf(request, csrf_token)
+    with get_db() as connection:
+        row = connection.execute("SELECT * FROM ngrok_links WHERE id = ?", (link_id,)).fetchone()
+        if row is not None:
+            ngrok_stop_tunnel(str(row["tunnel_name"] or ""))
+            connection.execute("DELETE FROM ngrok_links WHERE id = ?", (link_id,))
+    response = RedirectResponse(
+        f"{admin_redirect_target(lang, normalize_admin_tab(tab))}&notice={quote(t['admin_ngrok_removed_notice'])}",
+        status_code=303,
+    )
     set_lang_cookie(request, response, lang)
     return response
 
