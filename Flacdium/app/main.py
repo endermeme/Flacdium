@@ -113,6 +113,7 @@ OPENCELLID_API_URL = os.getenv("OPENCELLID_API_URL", "https://opencellid.org/cel
 TAILSCALE_PUBLIC_BASE_URL = (os.getenv("FLACDIUM_TAILSCALE_PUBLIC_BASE_URL") or "").strip().rstrip("/")
 ADMIN_USERNAME = (os.getenv("FLACDIUM_ADMIN_USERNAME") or "").strip()
 ADMIN_PASSWORD = os.getenv("FLACDIUM_ADMIN_PASSWORD", "")
+ADMIN_UPLOADER_ALIAS = "admin"
 TRUST_PROXY = env_bool("FLACDIUM_TRUST_PROXY", False)
 MAX_REQUEST_BODY_BYTES = env_int("FLACDIUM_MAX_REQUEST_BODY_BYTES", 1024 * 1024 * 1024)
 MAX_UPLOAD_FILES = env_int("FLACDIUM_MAX_UPLOAD_FILES", 64)
@@ -1204,12 +1205,72 @@ def seed_admin_user() -> None:
             )
 
 
+def migrate_admin_uploader_alias() -> None:
+    with get_db() as connection:
+        admin_names = {
+            str(row["username"])
+            for row in connection.execute("SELECT username FROM users WHERE is_admin = 1").fetchall()
+            if str(row["username"] or "").strip()
+        }
+        if ADMIN_USERNAME:
+            admin_names.add(ADMIN_USERNAME)
+        if not admin_names:
+            return
+        for admin_name in admin_names:
+            if admin_name == ADMIN_UPLOADER_ALIAS:
+                continue
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO track_uploaders (track_id, username, username_norm, added_at)
+                SELECT track_id, ?, ?, added_at
+                FROM track_uploaders
+                WHERE username = ?
+                """,
+                (ADMIN_UPLOADER_ALIAS, normalize_search_value(ADMIN_UPLOADER_ALIAS), admin_name),
+            )
+            connection.execute("DELETE FROM track_uploaders WHERE username = ?", (admin_name,))
+        placeholders = ",".join("?" for _ in admin_names)
+        connection.execute(
+            f"""
+            UPDATE tracks
+            SET uploader = ?, uploader_norm = ?
+            WHERE uploader IN ({placeholders})
+            """,
+            (ADMIN_UPLOADER_ALIAS, normalize_search_value(ADMIN_UPLOADER_ALIAS), *admin_names),
+        )
+        connection.execute(
+            f"""
+            UPDATE review_items
+            SET uploader = ?
+            WHERE uploader IN ({placeholders})
+            """,
+            (ADMIN_UPLOADER_ALIAS, *admin_names),
+        )
+        connection.execute(
+            """
+            UPDATE chat_messages
+            SET sender_username = ?
+            WHERE sender_id IN (SELECT id FROM users WHERE is_admin = 1)
+            """,
+            (ADMIN_UPLOADER_ALIAS,),
+        )
+        connection.execute(
+            """
+            UPDATE chat_messages
+            SET recipient_username = ?
+            WHERE recipient_id IN (SELECT id FROM users WHERE is_admin = 1)
+            """,
+            (ADMIN_UPLOADER_ALIAS,),
+        )
+
+
 @app.on_event("startup")
 def startup() -> None:
     validate_security_config()
     init_storage()
     init_db()
     seed_admin_user()
+    migrate_admin_uploader_alias()
 
 
 def get_db() -> sqlite3.Connection:
@@ -1223,6 +1284,16 @@ def first_tag(audio: FLAC, key: str) -> str:
     if not values:
         return ""
     return values[0].strip()
+
+
+def canonical_uploader_name(username: str, is_admin: bool) -> str:
+    if is_admin:
+        return ADMIN_UPLOADER_ALIAS
+    return username
+
+
+def display_uploader_for_user(user: sqlite3.Row) -> str:
+    return canonical_uploader_name(str(user["username"]), bool(user["is_admin"]))
 
 
 def parse_number(raw: str, default: int = 0) -> int:
@@ -3131,7 +3202,7 @@ def process_completed_batch(
             ingest_staged_flac(part_path, str(meta["name"]), uploader, accepted, rejected, lang)
 
 
-def run_upload_batch_job(batch_id: str, uploader: str, lang: str) -> None:
+def run_upload_batch_job(batch_id: str, actor_username: str, uploader: str, lang: str) -> None:
     accepted: list[str] = []
     rejected: list[str] = []
     write_upload_status(
@@ -3145,7 +3216,7 @@ def run_upload_batch_job(batch_id: str, uploader: str, lang: str) -> None:
     )
     try:
         with get_db() as connection:
-            user = connection.execute("SELECT * FROM users WHERE username = ?", (uploader,)).fetchone()
+            user = connection.execute("SELECT * FROM users WHERE username = ?", (actor_username,)).fetchone()
         process_completed_batch(
             batch_id,
             uploader,
@@ -4133,23 +4204,66 @@ def search_chat_users(connection: sqlite3.Connection, user: sqlite3.Row, keyword
         """
         SELECT username
         FROM users
-        WHERE id <> ? AND is_active = 1 AND username LIKE ?
+        WHERE id <> ? AND is_active = 1 AND is_admin = 0 AND username LIKE ?
         ORDER BY username COLLATE NOCASE ASC
         LIMIT 40
         """,
         (int(user["id"]), f"%{key}%"),
     ).fetchall()
-    return [{"username": str(row["username"])} for row in rows]
+    key_lower = key.lower()
+    items: list[dict[str, Any]] = [{"username": str(row["username"])} for row in rows]
+    if not is_admin_user(user):
+        if ADMIN_UPLOADER_ALIAS.startswith(key_lower) or key_lower in ADMIN_UPLOADER_ALIAS:
+            items.insert(0, {"username": ADMIN_UPLOADER_ALIAS})
+    return items
+
+
+def resolve_chat_peer(connection: sqlite3.Connection, user: sqlite3.Row, peer_name: str) -> sqlite3.Row | None:
+    raw = (peer_name or "").strip()
+    if not raw:
+        return None
+    if raw.lower() == ADMIN_UPLOADER_ALIAS:
+        if is_admin_user(user):
+            return None
+        return connection.execute(
+            "SELECT * FROM users WHERE is_admin = 1 AND is_active = 1 ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+    row = connection.execute(
+        "SELECT * FROM users WHERE username = ? AND is_active = 1",
+        (raw,),
+    ).fetchone()
+    if row is None:
+        return None
+    if int(row["id"]) == int(user["id"]):
+        return None
+    if int(row["is_admin"] or 0) == 1:
+        return None
+    return row
+
+
+def chat_public_name_for_row(user_row: sqlite3.Row) -> str:
+    return ADMIN_UPLOADER_ALIAS if int(user_row["is_admin"] or 0) == 1 else str(user_row["username"])
+
+
+def chat_public_name_from_ids(
+    connection: sqlite3.Connection,
+    sender_id: int,
+    fallback_username: str,
+) -> str:
+    row = connection.execute("SELECT is_admin FROM users WHERE id = ?", (sender_id,)).fetchone()
+    if row is not None and int(row["is_admin"] or 0) == 1:
+        return ADMIN_UPLOADER_ALIAS
+    return fallback_username
 
 
 def fetch_chat_missed(connection: sqlite3.Connection, user: sqlite3.Row) -> list[dict[str, Any]]:
     cleanup_expired_chat_messages(connection)
     rows = connection.execute(
         """
-        SELECT sender_username, COUNT(*) AS unread, MAX(created_at) AS last_at
+        SELECT sender_id, sender_username, COUNT(*) AS unread, MAX(created_at) AS last_at
         FROM chat_messages
         WHERE recipient_id = ? AND read_at = ''
-        GROUP BY sender_username
+        GROUP BY sender_id, sender_username
         ORDER BY last_at DESC
         LIMIT 80
         """,
@@ -4159,7 +4273,7 @@ def fetch_chat_missed(connection: sqlite3.Connection, user: sqlite3.Row) -> list
     for row in rows:
         items.append(
             {
-                "username": str(row["sender_username"]),
+                "username": chat_public_name_from_ids(connection, int(row["sender_id"]), str(row["sender_username"])),
                 "unread": int(row["unread"]),
                 "last_at": human_datetime(str(row["last_at"] or "")),
             }
@@ -4169,10 +4283,7 @@ def fetch_chat_missed(connection: sqlite3.Connection, user: sqlite3.Row) -> list
 
 def fetch_chat_messages(connection: sqlite3.Connection, user: sqlite3.Row, peer_username: str) -> list[dict[str, Any]]:
     cleanup_expired_chat_messages(connection)
-    peer = connection.execute(
-        "SELECT * FROM users WHERE username = ? AND is_active = 1",
-        (peer_username,),
-    ).fetchone()
+    peer = resolve_chat_peer(connection, user, peer_username)
     if peer is None:
         return []
     connection.execute(
@@ -4197,6 +4308,12 @@ def fetch_chat_messages(connection: sqlite3.Connection, user: sqlite3.Row, peer_
         (int(user["id"]), int(peer["id"]), int(peer["id"]), int(user["id"])),
     ).fetchall()
     items = [dict(row) for row in rows]
+    for item in items:
+        item["sender_username"] = chat_public_name_from_ids(
+            connection,
+            int(item["sender_id"]),
+            str(item["sender_username"]),
+        )
     items.reverse()
     return items
 
@@ -4356,10 +4473,12 @@ def render_chat(
         raise HTTPException(status_code=403, detail=t["upload_login_required"])
     maybe_record_session_seen(request, user)
     csrf_token = get_or_create_csrf_token(request)
-    peer = (peer_override or request.query_params.get("peer") or "").strip()
+    peer_raw = (peer_override or request.query_params.get("peer") or "").strip()
     with get_db() as connection:
         notices = fetch_public_notices(connection)
         notice_unread_count = fetch_notice_unread_count(connection, user)
+        peer_resolved = resolve_chat_peer(connection, user, peer_raw) if peer_raw else None
+        peer = chat_public_name_for_row(peer_resolved) if peer_resolved is not None else ""
         messages = fetch_chat_messages(connection, user, peer) if peer else []
         missed = fetch_chat_missed(connection, user)
         chat_unread_count = fetch_chat_unread_count(connection, user)
@@ -4442,12 +4561,11 @@ async def chatchit_send(
         set_lang_cookie(request, response, lang)
         return response
     with get_db() as connection:
-        peer_row = connection.execute(
-            "SELECT * FROM users WHERE username = ? AND is_active = 1",
-            (peer_name,),
-        ).fetchone()
-        if peer_row is not None and int(peer_row["id"]) != int(user["id"]):
+        peer_row = resolve_chat_peer(connection, user, peer_name)
+        if peer_row is not None:
             cleanup_expired_chat_messages(connection)
+            sender_public_name = display_uploader_for_user(user)
+            recipient_public_name = chat_public_name_for_row(peer_row)
             connection.execute(
                 """
                 INSERT INTO chat_messages (
@@ -4456,14 +4574,15 @@ async def chatchit_send(
                 """,
                 (
                     int(user["id"]),
-                    str(user["username"]),
+                    sender_public_name,
                     int(peer_row["id"]),
-                    str(peer_row["username"]),
+                    recipient_public_name,
                     text,
                     now_utc().isoformat(),
                 ),
             )
-    response = RedirectResponse(f"/chatchit/thread/{quote(peer_name)}?lang={lang}", status_code=303)
+    redirect_peer = ADMIN_UPLOADER_ALIAS if (peer_row is not None and int(peer_row["is_admin"] or 0) == 1) else peer_name
+    response = RedirectResponse(f"/chatchit/thread/{quote(redirect_peer)}?lang={lang}", status_code=303)
     set_lang_cookie(request, response, lang)
     return response
 
@@ -4783,7 +4902,7 @@ async def upload(
         )
     if not user["is_active"]:
         return render_home(request, notice=t["user_disabled"], status_code=403)
-    uploader_name = user["username"]
+    uploader_name = display_uploader_for_user(user)
     max_upload_files = user_upload_file_limit(user)
     max_zip_uploads = user_upload_zip_limit(user)
     batch_id = re.sub(r"[^a-zA-Z0-9_-]", "", upload_batch_id or "")[:64]
@@ -4932,7 +5051,7 @@ async def upload_complete(
             batch_id,
             {
                 "status": "queued",
-                "uploader": user["username"],
+                "uploader": display_uploader_for_user(user),
                 "lang": lang,
                 "notice": t["upload_progress_processing"],
             },
@@ -4945,7 +5064,13 @@ async def upload_complete(
                 "status_url": urls["status_url"],
                 "result_url": urls["result_url"],
             },
-            background=BackgroundTask(run_upload_batch_job, batch_id, user["username"], lang),
+            background=BackgroundTask(
+                run_upload_batch_job,
+                batch_id,
+                user["username"],
+                display_uploader_for_user(user),
+                lang,
+            ),
         )
 
     accepted: list[str] = []
@@ -4954,7 +5079,7 @@ async def upload_complete(
         await asyncio.to_thread(
             process_completed_batch,
             batch_id,
-            user["username"],
+            display_uploader_for_user(user),
             accepted,
             rejected,
             lang,
