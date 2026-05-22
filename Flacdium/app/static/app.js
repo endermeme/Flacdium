@@ -735,6 +735,7 @@ const chatUserSearch = document.querySelector("[data-chat-user-search]");
 const chatUserSuggest = document.querySelector("[data-chat-user-suggest]");
 const chatPeerHidden = document.querySelector("[data-chat-peer-hidden]");
 const chatMissedOverlay = document.querySelector("[data-chat-missed-overlay]");
+const chatMissedBadge = document.querySelector("[data-chat-missed-badge]");
 if (chatThread && chatLink && chatLabel) {
   let peer = chatThread.dataset.chatPeer || "";
   const renderChat = (payload) => {
@@ -749,6 +750,11 @@ if (chatThread && chatLink && chatLabel) {
       chatLabel.textContent = chatLink.dataset.chatLabelDefault || "chatchit";
     }
     if (Array.isArray(payload.missed) && chatMissedContainer) {
+      if (chatMissedBadge) {
+        const missedCount = payload.missed.length;
+        chatMissedBadge.textContent = String(missedCount);
+        chatMissedBadge.classList.toggle("is-hidden", missedCount <= 0);
+      }
       chatMissedContainer.innerHTML = payload.missed.length > 0
         ? payload.missed.map((item) => {
           const href = `/chatchit/thread/${encodeURIComponent(item.username)}`;

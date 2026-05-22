@@ -16,7 +16,13 @@
               </label>
               <div class="chat-search-suggest" data-chat-user-suggest></div>
             </div>
-            <button type="button" class="mini-button" data-open-missed>{{ t["chat_missed_button"] }}</button>
+            <button type="button" class="mini-button chat-missed-button" data-open-missed>
+              {{ t["chat_missed_button"] }}
+              <span
+                class="chat-missed-badge {% if not chat_missed %}is-hidden{% endif %}"
+                data-chat-missed-badge
+              >{{ chat_missed|length }}</span>
+            </button>
           </div>
 
           <div class="chat-thread-list" data-chat-thread data-chat-peer="{{ chat_peer }}" data-chat-you="{{ current_user['username'] }}">
