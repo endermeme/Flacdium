@@ -41,7 +41,7 @@
         <a href="/admin?lang={{ lang }}&tab=sessions" class="admin-tab {% if active_tab == 'sessions' %}is-active{% endif %}">{{ t["admin_tab_sessions"] }}</a>
         <a href="/admin?lang={{ lang }}&tab=tracks" class="admin-tab {% if active_tab == 'tracks' %}is-active{% endif %}">{{ t["admin_tab_tracks"] }}</a>
         <a href="/admin?lang={{ lang }}&tab=reviews" class="admin-tab {% if active_tab == 'reviews' %}is-active{% endif %}">{{ t["admin_tab_reviews"] }}</a>
-        <a href="/admin?lang={{ lang }}&tab=ngrok" class="admin-tab {% if active_tab == 'ngrok' %}is-active{% endif %}">{{ t["admin_tab_ngrok"] }}</a>
+        <a href="/admin?lang={{ lang }}&tab=notices" class="admin-tab {% if active_tab == 'notices' %}is-active{% endif %}">{{ t["admin_tab_notices"] }}</a>
       </div>
 
       {% if notice %}
@@ -155,6 +155,17 @@
                   <a href="/admin?lang={{ lang }}&tab=sessions">{{ t["clear"] }}</a>
                 </div>
               </form>
+
+              {% if domain_stats %}
+                <div class="side-panel" style="margin-bottom:6px;">
+                  <div class="panel-title">{{ t["admin_domain_stats"] }}</div>
+                  <div class="side-list">
+                    {% for item in domain_stats %}
+                      <div class="side-link"><span>{{ item["entry_host"] }}</span> <span>{{ item["total"] }} | {{ item["last_seen_label"] }}</span></div>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endif %}
 
               <form method="post" action="/admin/logs/bulk-delete" data-bulk-form>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -484,6 +495,83 @@
                       </tr>
                     {% else %}
                       <tr><td colspan="7" class="empty-row">{{ t["admin_ngrok_empty"] }}</td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        {% endif %}
+
+        {% if active_tab == "notices" %}
+          <div class="admin-block admin-section admin-section-tab">
+            <div class="admin-section-head">
+              <strong>{{ t["admin_notice_title"] }}</strong>
+            </div>
+            <div class="admin-section-body">
+              <form class="filter-panel admin-filter-panel notice-compose" method="post" action="/admin/notices/save">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="tab" value="notices">
+                <label>
+                  <span>{{ t["admin_notice_subject"] }}</span>
+                  <input type="text" name="title" maxlength="220" required>
+                </label>
+                <label class="checkbox-line">
+                  <input type="checkbox" name="pin_now" value="true">
+                  <span>{{ t["notice_pinned"] }}</span>
+                </label>
+                <div class="notice-editor-toolbar" data-editor-toolbar data-editor-target="notice-editor">
+                  <button type="button" class="mini-button" data-editor-cmd="bold">B</button>
+                  <button type="button" class="mini-button" data-editor-cmd="italic">I</button>
+                  <button type="button" class="mini-button" data-editor-cmd="underline">U</button>
+                  <button type="button" class="mini-button" data-editor-cmd="insertUnorderedList">• List</button>
+                  <button type="button" class="mini-button" data-editor-cmd="formatBlock" data-editor-value="h3">H3</button>
+                  <button type="button" class="mini-button" data-editor-link>Link</button>
+                  <label class="mini-button notice-image-upload-button">
+                    {{ t["admin_notice_image_upload"] }}
+                    <input type="file" accept=".png,.jpg,.jpeg,.webp,.gif" data-editor-image-upload>
+                  </label>
+                </div>
+                <div class="notice-editor" id="notice-editor" contenteditable="true"></div>
+                <input type="hidden" name="content_html" data-editor-hidden="notice-editor">
+                <div class="filter-actions">
+                  <button type="submit">{{ t["admin_notice_create"] }}</button>
+                </div>
+              </form>
+
+              <div class="table-scroll admin-table-scroll">
+                <table class="library-table admin-table">
+                  <thead>
+                    <tr>
+                      <th>{{ t["admin_notice_subject"] }}</th>
+                      <th>{{ t["admin_notice_content"] }}</th>
+                      <th>{{ t["admin_ngrok_created_by"] }}</th>
+                      <th>{{ t["admin_ngrok_created_at"] }}</th>
+                      <th>{{ t["admin_actions"] }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for item in notices %}
+                      <tr>
+                        <td>{{ item["title"] }} {% if item["is_pinned"] %}<span class="notice-pin">{{ t["notice_pinned"] }}</span>{% endif %}</td>
+                        <td class="notice-html-cell">{{ item["content_html"] | safe }}</td>
+                        <td>{{ item["created_by"] }}</td>
+                        <td>{{ item["updated_label"] }}</td>
+                        <td>
+                          <form method="post" action="/admin/notices/{{ item['id'] }}/pin" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="tab" value="notices">
+                            <button type="submit" class="mini-button">{{ t["admin_notice_unpin"] if item["is_pinned"] else t["admin_notice_pin"] }}</button>
+                          </form>
+                          <form method="post" action="/admin/notices/{{ item['id'] }}/delete" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="tab" value="notices">
+                            <button type="submit" class="mini-button danger-button">{{ t["admin_notice_delete"] }}</button>
+                          </form>
+                        </td>
+                      </tr>
+                    {% else %}
+                      <tr><td colspan="5" class="empty-row">{{ t["notice_empty"] }}</td></tr>
                     {% endfor %}
                   </tbody>
                 </table>

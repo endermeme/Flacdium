@@ -37,6 +37,7 @@ REVIEW_DIR = TMP_DIR / "review"
 SPECTRUM_DIR = TMP_DIR / "spectrum"
 BATCH_DIR = TMP_DIR / "upload_batches"
 UPLOAD_STATUS_DIR = TMP_DIR / "upload_status"
+NOTICE_ASSETS_DIR = DATA_DIR / "notice_assets"
 DB_PATH = DATA_DIR / "flacdium.sqlite3"
 STATIC_ASSET_VERSION = str(
     max(
@@ -57,6 +58,7 @@ for folder in (
     SPECTRUM_DIR,
     BATCH_DIR,
     UPLOAD_STATUS_DIR,
+    NOTICE_ASSETS_DIR,
 ):
     folder.mkdir(parents=True, exist_ok=True)
 
@@ -193,6 +195,8 @@ TEXT: dict[str, dict[str, str]] = {
         "nav_artists": "ca sĩ",
         "nav_albums": "album",
         "nav_uploaders": "người up",
+        "nav_notice": "thông báo",
+        "nav_chat": "chatchit",
         "nav_quickfind": "xem tất cả",
         "nav_admin": "quản trị",
         "signal_strip": "giao diện archive cũ | tông sáng dịu | giữ cover art nhúng",
@@ -319,6 +323,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_filter_from": "từ ngày",
         "admin_filter_to": "đến ngày",
         "admin_filter_sort": "sắp xếp",
+        "admin_domain_stats": "thống kê domain",
         "admin_sort_newest": "ngày mới nhất",
         "admin_sort_oldest": "ngày cũ nhất",
         "admin_sort_user_az": "tài khoản a-z",
@@ -381,6 +386,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_tab_sessions": "sessions",
         "admin_tab_tracks": "nhạc",
         "admin_tab_reviews": "duyệt",
+        "admin_tab_notices": "thông báo",
         "admin_tab_ngrok": "tailscale",
         "admin_select": "chọn",
         "admin_select_all": "chọn trang",
@@ -427,6 +433,36 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_ngrok_created": "đã tạo link tailscale",
         "admin_ngrok_stopped_notice": "đã tắt link tailscale",
         "admin_ngrok_removed_notice": "đã xóa link tailscale",
+        "notice_popup_title": "thông báo server",
+        "notice_empty": "chưa có thông báo",
+        "notice_pinned": "ghim",
+        "nav_notice_new": "thông báo mới ({count})",
+        "nav_chat_new": "chatchit mới ({count})",
+        "chat_title": "chatchit",
+        "chat_users": "người dùng",
+        "chat_search_user": "tìm người dùng (>= 4 ký tự)",
+        "chat_missed": "nhỡ",
+        "chat_missed_button": "mở nhỡ",
+        "chat_empty_missed": "không có nhỡ",
+        "chat_pick_user": "nhập tên người dùng để bắt đầu nhắn",
+        "chat_input": "nhập tin nhắn text...",
+        "chat_send": "gửi",
+        "chat_hint": "tin nhắn đọc rồi sẽ tự xóa sau 24 giờ",
+        "chat_warning": "Lưu ý : tin nhắn sẽ tự biến mất sau 24 giờ và Nhỡ cũng thế , vui lòng copy tên người dùng nếu muốn giao lưu tiếp",
+        "chat_you": "bạn",
+        "chat_no_messages": "chưa có tin nhắn",
+        "admin_notice_title": "soạn thông báo",
+        "admin_notice_subject": "tiêu đề",
+        "admin_notice_content": "nội dung",
+        "admin_notice_create": "đăng thông báo",
+        "admin_notice_update": "cập nhật",
+        "admin_notice_delete": "xóa",
+        "admin_notice_pin": "ghim",
+        "admin_notice_unpin": "bỏ ghim",
+        "admin_notice_pinned_limit": "chỉ ghim tối đa 2 thông báo",
+        "admin_notice_saved": "đã lưu thông báo",
+        "admin_notice_deleted": "đã xóa thông báo",
+        "admin_notice_image_upload": "tải ảnh",
         "possible_duplicate_note": "các case trùng theo metadata đang bị chặn nhẹ để tránh up lặp",
         "storage_note": "dedupe hiện chặn file hash trùng và slot album trùng; tối ưu mạnh hơn nên bàn thêm",
         "system_panel": "hệ thống",
@@ -457,6 +493,8 @@ TEXT: dict[str, dict[str, str]] = {
         "nav_artists": "artists",
         "nav_albums": "albums",
         "nav_uploaders": "uploaders",
+        "nav_notice": "alerts",
+        "nav_chat": "chatchit",
         "nav_quickfind": "view all",
         "nav_admin": "admin",
         "signal_strip": "old archive layout | soft light palette | embedded cover art preserved",
@@ -583,6 +621,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_filter_from": "from date",
         "admin_filter_to": "to date",
         "admin_filter_sort": "sort",
+        "admin_domain_stats": "domain stats",
         "admin_sort_newest": "newest date",
         "admin_sort_oldest": "oldest date",
         "admin_sort_user_az": "user a-z",
@@ -642,6 +681,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_tab_sessions": "sessions",
         "admin_tab_tracks": "tracks",
         "admin_tab_reviews": "review",
+        "admin_tab_notices": "alerts",
         "admin_tab_ngrok": "tailscale",
         "admin_select": "select",
         "admin_select_all": "select page",
@@ -665,29 +705,59 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_review_approve": "approve import",
         "admin_review_reject": "reject",
         "admin_review_empty": "no files pending review",
-        "admin_ngrok_title": "tailscale sharing",
-        "admin_ngrok_target": "internal target",
-        "admin_ngrok_target_hint": "example: http://127.0.0.1:8000",
-        "admin_ngrok_proto": "protocol",
-        "admin_ngrok_expires": "expires in (minutes)",
-        "admin_ngrok_create": "create link",
+        "admin_ngrok_title": "tailscale links",
+        "admin_ngrok_target": "target",
+        "admin_ngrok_target_hint": "ex: http://127.0.0.1:8000",
+        "admin_ngrok_proto": "proto",
+        "admin_ngrok_expires": "expire (min)",
+        "admin_ngrok_create": "create",
         "admin_ngrok_public_url": "public url",
-        "admin_ngrok_created_by": "created by",
-        "admin_ngrok_created_at": "created at",
-        "admin_ngrok_expires_at": "expires at",
+        "admin_ngrok_created_by": "creator",
+        "admin_ngrok_created_at": "created",
+        "admin_ngrok_expires_at": "expires",
         "admin_ngrok_status": "status",
         "admin_ngrok_actions": "actions",
         "admin_ngrok_stop": "stop",
         "admin_ngrok_remove": "remove",
         "admin_ngrok_empty": "no tailscale links",
-        "admin_ngrok_running": "running",
-        "admin_ngrok_stopped": "stopped",
+        "admin_ngrok_running": "live",
+        "admin_ngrok_stopped": "off",
         "admin_ngrok_expired": "expired",
         "admin_ngrok_error": "error",
-        "admin_ngrok_agent_unreachable": "missing FLACDIUM_TAILSCALE_PUBLIC_BASE_URL or tailscale funnel is not configured",
+        "admin_ngrok_agent_unreachable": "set FLACDIUM_TAILSCALE_PUBLIC_BASE_URL and enable funnel first",
         "admin_ngrok_created": "tailscale link created",
         "admin_ngrok_stopped_notice": "tailscale link stopped",
         "admin_ngrok_removed_notice": "tailscale link removed",
+        "notice_popup_title": "server alerts",
+        "notice_empty": "no alerts",
+        "notice_pinned": "pinned",
+        "nav_notice_new": "new alerts ({count})",
+        "nav_chat_new": "new chatchit ({count})",
+        "chat_title": "chatchit",
+        "chat_users": "users",
+        "chat_search_user": "find user (>= 4 chars)",
+        "chat_missed": "missed",
+        "chat_missed_button": "open missed",
+        "chat_empty_missed": "no missed",
+        "chat_pick_user": "type a username to start",
+        "chat_input": "type text message...",
+        "chat_send": "send",
+        "chat_hint": "read messages are deleted after 24h",
+        "chat_warning": "Note: messages and missed entries auto-delete after 24h. Save usernames if you want to reconnect.",
+        "chat_you": "you",
+        "chat_no_messages": "no messages",
+        "admin_notice_title": "compose alert",
+        "admin_notice_subject": "subject",
+        "admin_notice_content": "content",
+        "admin_notice_create": "publish",
+        "admin_notice_update": "update",
+        "admin_notice_delete": "delete",
+        "admin_notice_pin": "pin",
+        "admin_notice_unpin": "unpin",
+        "admin_notice_pinned_limit": "max 2 pinned alerts",
+        "admin_notice_saved": "alert saved",
+        "admin_notice_deleted": "alert deleted",
+        "admin_notice_image_upload": "image",
         "possible_duplicate_note": "metadata duplicates are blocked softly to avoid repeated uploads",
         "storage_note": "dedupe currently blocks exact hashes and duplicate album slots; heavier optimization needs policy discussion",
         "system_panel": "system",
@@ -723,6 +793,7 @@ class SecurityConfigError(RuntimeError):
 app = FastAPI(title="Flacdium")
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 app.mount("/covers", StaticFiles(directory=str(COVERS_DIR)), name="covers")
+app.mount("/notice-assets", StaticFiles(directory=str(NOTICE_ASSETS_DIR)), name="notice_assets")
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 templates.env.globals["asset_version"] = STATIC_ASSET_VERSION
 
@@ -905,6 +976,47 @@ def init_db() -> None:
             """
         )
         connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS notices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                content_html TEXT NOT NULL,
+                is_pinned INTEGER NOT NULL DEFAULT 0,
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS notice_reads (
+                user_id INTEGER NOT NULL,
+                notice_id INTEGER NOT NULL,
+                read_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, notice_id),
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(notice_id) REFERENCES notices(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender_id INTEGER NOT NULL,
+                sender_username TEXT NOT NULL,
+                recipient_id INTEGER NOT NULL,
+                recipient_username TEXT NOT NULL,
+                message_text TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                read_at TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY(sender_id) REFERENCES users(id),
+                FOREIGN KEY(recipient_id) REFERENCES users(id)
+            )
+            """
+        )
+        connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_tracks_artist_album ON tracks (artist, album)"
         )
         connection.execute(
@@ -941,6 +1053,30 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_ngrok_links_status_time
             ON ngrok_links (status, created_at DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_notices_pin_time
+            ON notices (is_pinned DESC, updated_at DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_notice_reads_user_time
+            ON notice_reads (user_id, read_at DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_recipient_read
+            ON chat_messages (recipient_id, read_at, created_at DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_pair_time
+            ON chat_messages (sender_id, recipient_id, created_at DESC)
             """
         )
         connection.execute(
@@ -1568,7 +1704,9 @@ def display_ip_value(ip_address: str, forwarded_for: str = "") -> str:
 
 
 def request_origin_details(request: Request) -> tuple[str, str]:
-    host = (request.headers.get("host") or "").strip()
+    forwarded_host = (request.headers.get("x-forwarded-host") or "").strip().split(",")[0].strip()
+    host = forwarded_host or (request.headers.get("host") or "").strip()
+    host = host.lower()
     forwarded_proto = (request.headers.get("x-forwarded-proto") or "").strip().split(",")[0].strip()
     scheme = forwarded_proto or request.url.scheme or "http"
     origin = f"{scheme}://{host}" if host else ""
@@ -3787,6 +3925,25 @@ def fetch_admin_logs(connection: sqlite3.Connection, request: Request) -> tuple[
     return logs, pagination
 
 
+def fetch_admin_domain_stats(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT entry_host, COUNT(*) AS total, MAX(created_at) AS last_seen_at
+        FROM login_logs
+        WHERE entry_host <> ''
+        GROUP BY entry_host
+        ORDER BY total DESC, last_seen_at DESC
+        LIMIT 30
+        """
+    ).fetchall()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["last_seen_label"] = human_datetime(str(row["last_seen_at"] or ""))
+        items.append(item)
+    return items
+
+
 def fetch_admin_tracks(
     connection: sqlite3.Connection,
     request: Request,
@@ -3850,8 +4007,202 @@ def fetch_admin_reviews(connection: sqlite3.Connection, lang: str) -> list[dict[
     return items
 
 
+def strip_dangerous_notice_html(raw_html: str) -> str:
+    html_value = (raw_html or "").strip()
+    if not html_value:
+        return ""
+    html_value = re.sub(r"(?is)<script.*?>.*?</script>", "", html_value)
+    html_value = re.sub(r"(?is)<style.*?>.*?</style>", "", html_value)
+    html_value = re.sub(r"(?i)\son\w+\s*=\s*([\"']).*?\1", "", html_value)
+    html_value = re.sub(r"(?i)\shref\s*=\s*([\"'])\s*javascript:.*?\1", " href=\"#\"", html_value)
+    html_value = re.sub(r"(?i)\ssrc\s*=\s*([\"'])\s*javascript:.*?\1", "", html_value)
+    return html_value
+
+
+def fetch_public_notices(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT *
+        FROM notices
+        ORDER BY is_pinned DESC, updated_at DESC, id DESC
+        LIMIT 120
+        """
+    ).fetchall()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["created_label"] = human_datetime(str(row["created_at"] or ""))
+        item["updated_label"] = human_datetime(str(row["updated_at"] or ""))
+        items.append(item)
+    return items
+
+
+def fetch_admin_notices(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    return fetch_public_notices(connection)
+
+
+def fetch_notice_unread_count(connection: sqlite3.Connection, user: sqlite3.Row | None) -> int:
+    if user is None:
+        return 0
+    total = connection.execute("SELECT COUNT(*) FROM notices").fetchone()[0]
+    if not total:
+        return 0
+    read_count = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM notice_reads nr
+        JOIN notices n ON n.id = nr.notice_id
+        WHERE nr.user_id = ?
+        """,
+        (int(user["id"]),),
+    ).fetchone()[0]
+    return max(int(total) - int(read_count), 0)
+
+
+def mark_all_notices_as_read(connection: sqlite3.Connection, user: sqlite3.Row) -> None:
+    now_iso = now_utc().isoformat()
+    connection.execute(
+        """
+        INSERT OR REPLACE INTO notice_reads (user_id, notice_id, read_at)
+        SELECT ?, id, ? FROM notices
+        """,
+        (int(user["id"]), now_iso),
+    )
+
+
+def cleanup_expired_chat_messages(connection: sqlite3.Connection) -> None:
+    cutoff = (now_utc() - timedelta(hours=24)).isoformat()
+    connection.execute(
+        """
+        DELETE FROM chat_messages
+        WHERE read_at <> '' AND read_at <= ?
+        """,
+        (cutoff,),
+    )
+
+
+def fetch_chat_unread_count(connection: sqlite3.Connection, user: sqlite3.Row | None) -> int:
+    if user is None:
+        return 0
+    cleanup_expired_chat_messages(connection)
+    return int(
+        connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM chat_messages
+            WHERE recipient_id = ? AND read_at = ''
+            """,
+            (int(user["id"]),),
+        ).fetchone()[0]
+    )
+
+
+def fetch_chat_peers(connection: sqlite3.Connection, user: sqlite3.Row) -> list[dict[str, Any]]:
+    cleanup_expired_chat_messages(connection)
+    rows = connection.execute(
+        """
+        SELECT username FROM users
+        WHERE id <> ? AND is_active = 1
+        ORDER BY username COLLATE NOCASE ASC
+        LIMIT 400
+        """,
+        (int(user["id"]),),
+    ).fetchall()
+    peers: list[dict[str, Any]] = []
+    for row in rows:
+        username = str(row["username"])
+        unread = int(
+            connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM chat_messages
+                WHERE sender_username = ? AND recipient_id = ? AND read_at = ''
+                """,
+                (username, int(user["id"])),
+            ).fetchone()[0]
+        )
+        peers.append({"username": username, "unread": unread})
+    return peers
+
+
+def search_chat_users(connection: sqlite3.Connection, user: sqlite3.Row, keyword: str) -> list[dict[str, Any]]:
+    key = re.sub(r"\s+", " ", (keyword or "").strip())
+    if len(key) < 4:
+        return []
+    rows = connection.execute(
+        """
+        SELECT username
+        FROM users
+        WHERE id <> ? AND is_active = 1 AND username LIKE ?
+        ORDER BY username COLLATE NOCASE ASC
+        LIMIT 40
+        """,
+        (int(user["id"]), f"%{key}%"),
+    ).fetchall()
+    return [{"username": str(row["username"])} for row in rows]
+
+
+def fetch_chat_missed(connection: sqlite3.Connection, user: sqlite3.Row) -> list[dict[str, Any]]:
+    cleanup_expired_chat_messages(connection)
+    rows = connection.execute(
+        """
+        SELECT sender_username, COUNT(*) AS unread, MAX(created_at) AS last_at
+        FROM chat_messages
+        WHERE recipient_id = ? AND read_at = ''
+        GROUP BY sender_username
+        ORDER BY last_at DESC
+        LIMIT 80
+        """,
+        (int(user["id"]),),
+    ).fetchall()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        items.append(
+            {
+                "username": str(row["sender_username"]),
+                "unread": int(row["unread"]),
+                "last_at": human_datetime(str(row["last_at"] or "")),
+            }
+        )
+    return items
+
+
+def fetch_chat_messages(connection: sqlite3.Connection, user: sqlite3.Row, peer_username: str) -> list[dict[str, Any]]:
+    cleanup_expired_chat_messages(connection)
+    peer = connection.execute(
+        "SELECT * FROM users WHERE username = ? AND is_active = 1",
+        (peer_username,),
+    ).fetchone()
+    if peer is None:
+        return []
+    connection.execute(
+        """
+        UPDATE chat_messages
+        SET read_at = ?
+        WHERE sender_id = ? AND recipient_id = ? AND read_at = ''
+        """,
+        (now_utc().isoformat(), int(peer["id"]), int(user["id"])),
+    )
+    rows = connection.execute(
+        """
+        SELECT *
+        FROM chat_messages
+        WHERE
+          (sender_id = ? AND recipient_id = ?)
+          OR
+          (sender_id = ? AND recipient_id = ?)
+        ORDER BY id DESC
+        LIMIT 200
+        """,
+        (int(user["id"]), int(peer["id"]), int(peer["id"]), int(user["id"])),
+    ).fetchall()
+    items = [dict(row) for row in rows]
+    items.reverse()
+    return items
+
+
 def normalize_admin_tab(raw_value: str | None) -> str:
-    return raw_value if raw_value in {"accounts", "sessions", "tracks", "reviews", "ngrok"} else "accounts"
+    return raw_value if raw_value in {"accounts", "sessions", "tracks", "reviews", "ngrok", "notices"} else "accounts"
 
 
 def admin_anchor(tab: str) -> str:
@@ -3869,21 +4220,28 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
         summary = fetch_admin_summary(connection)
         users: list[dict[str, Any]] = []
         logs: list[dict[str, Any]] = []
+        domain_stats: list[dict[str, Any]] = []
         tracks: list[dict[str, Any]] = []
         reviews: list[dict[str, Any]] = []
         ngrok_links: list[dict[str, Any]] = []
+        notices: list[dict[str, Any]] = fetch_public_notices(connection)
         logs_pagination: dict[str, Any] = {"total_items": 0, "page": 1, "total_pages": 1, "prev_url": "", "next_url": "", "filters": {"log_user": "", "date_from": "", "date_to": "", "log_sort": "newest"}}
         track_filters = {"track_q": "", "track_uploader": ""}
         if active_tab == "accounts":
             users = fetch_admin_users(connection)
         elif active_tab == "sessions":
             logs, logs_pagination = fetch_admin_logs(connection, request)
+            domain_stats = fetch_admin_domain_stats(connection)
         elif active_tab == "tracks":
             tracks, track_filters = fetch_admin_tracks(connection, request, lang)
         elif active_tab == "reviews":
             reviews = fetch_admin_reviews(connection, lang)
         elif active_tab == "ngrok":
             ngrok_links = fetch_admin_ngrok_links(connection, lang)
+        elif active_tab == "notices":
+            notices = fetch_admin_notices(connection)
+        notice_unread_count = fetch_notice_unread_count(connection, admin_user)
+        chat_unread_count = fetch_chat_unread_count(connection, admin_user)
     context = {
         "request": request,
         "lang": lang,
@@ -3894,12 +4252,14 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
         "summary": summary,
         "users": users,
         "logs": logs,
+        "domain_stats": domain_stats,
         "tracks": tracks,
         "logs_pagination": logs_pagination,
         "log_filters": logs_pagination["filters"],
         "track_filters": track_filters,
         "reviews": reviews,
         "ngrok_links": ngrok_links,
+        "notices": notices,
         "auth_open": False,
         "auth_mode": "login",
         "show_guest_notice": False,
@@ -3910,6 +4270,8 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
         "user_upload_zip_limit": user_upload_zip_limit(admin_user),
         "user_bundle_track_limit": user_bundle_track_limit(admin_user),
         "page_kind": "admin",
+        "notice_unread_count": notice_unread_count,
+        "chat_unread_count": chat_unread_count,
     }
     response = templates.TemplateResponse(request, "admin.html", context, status_code=status_code)
     set_lang_cookie(request, response, lang)
@@ -3936,6 +4298,8 @@ def render_home(
     csrf_token = get_or_create_csrf_token(request)
     with get_db() as connection:
         tracks, filters, track_pagination = fetch_tracks(connection, request, lang)
+        notice_unread_count = fetch_notice_unread_count(connection, user)
+        chat_unread_count = fetch_chat_unread_count(connection, user)
         context = {
             "request": request,
             "lang": lang,
@@ -3947,6 +4311,7 @@ def render_home(
             "track_pagination": track_pagination,
             "filters": filters,
             "summary": fetch_summary(connection),
+            "notices": fetch_public_notices(connection),
             "sidebar": fetch_sidebar_lists(connection, request),
             "quick_links": fetch_quick_links(connection, request),
             "sort_keys": list(SORTS.keys()),
@@ -3964,6 +4329,8 @@ def render_home(
             "user_upload_zip_limit": user_upload_zip_limit(user),
             "user_bundle_track_limit": user_bundle_track_limit(user),
             "page_kind": "home",
+            "notice_unread_count": notice_unread_count,
+            "chat_unread_count": chat_unread_count,
         }
         response = templates.TemplateResponse(
             request,
@@ -3971,6 +4338,56 @@ def render_home(
             context,
             status_code=status_code,
         )
+        set_lang_cookie(request, response, lang)
+        set_csrf_cookie(request, response, csrf_token)
+        return response
+
+
+def render_chat(
+    request: Request,
+    notice: str = "",
+    status_code: int = 200,
+    peer_override: str = "",
+) -> HTMLResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    user = current_user(request)
+    if user is None:
+        raise HTTPException(status_code=403, detail=t["upload_login_required"])
+    maybe_record_session_seen(request, user)
+    csrf_token = get_or_create_csrf_token(request)
+    peer = (peer_override or request.query_params.get("peer") or "").strip()
+    with get_db() as connection:
+        notices = fetch_public_notices(connection)
+        notice_unread_count = fetch_notice_unread_count(connection, user)
+        messages = fetch_chat_messages(connection, user, peer) if peer else []
+        missed = fetch_chat_missed(connection, user)
+        chat_unread_count = fetch_chat_unread_count(connection, user)
+        context = {
+            "request": request,
+            "lang": lang,
+            "t": t,
+            "notice": notice,
+            "current_user": user,
+            "auth_open": False,
+            "auth_mode": "login",
+            "show_guest_notice": False,
+            "lang_url_vi": url_with_lang(request, lang="vi"),
+            "lang_url_en": url_with_lang(request, lang="en"),
+            "csrf_token": csrf_token,
+            "user_upload_file_limit": user_upload_file_limit(user),
+            "user_upload_zip_limit": user_upload_zip_limit(user),
+            "user_bundle_track_limit": user_bundle_track_limit(user),
+            "page_kind": "chat",
+            "notices": notices,
+            "notice_unread_count": notice_unread_count,
+            "chat_unread_count": chat_unread_count,
+            "chat_peers": [],
+            "chat_peer": peer,
+            "chat_messages": messages,
+            "chat_missed": missed,
+        }
+        response = templates.TemplateResponse(request, "chat.html", context, status_code=status_code)
         set_lang_cookie(request, response, lang)
         set_csrf_cookie(request, response, csrf_token)
         return response
@@ -3992,6 +4409,102 @@ async def home(request: Request) -> HTMLResponse:
         auth_open=request.query_params.get("auth") == "1",
         auth_mode=auth_mode,
     )
+
+
+@app.get("/chatchit", response_class=HTMLResponse)
+async def chatchit_page(request: Request) -> HTMLResponse:
+    return render_chat(request)
+
+
+@app.get("/chatchit/thread/{peer_username}", response_class=HTMLResponse)
+async def chatchit_thread_page(request: Request, peer_username: str) -> HTMLResponse:
+    return render_chat(request, peer_override=peer_username)
+
+
+@app.post("/chatchit/send")
+async def chatchit_send(
+    request: Request,
+    csrf_token: str = Form(...),
+    peer: str = Form(""),
+    message: str = Form(""),
+) -> RedirectResponse:
+    verify_csrf(request, csrf_token)
+    user = current_user(request)
+    lang = get_lang(request)
+    if user is None:
+        response = RedirectResponse(f"/?auth=1&lang={lang}", status_code=303)
+        set_lang_cookie(request, response, lang)
+        return response
+    peer_name = (peer or "").strip()
+    text = re.sub(r"\s+", " ", (message or "").strip())[:2000]
+    if not peer_name or not text:
+        response = RedirectResponse(f"/chatchit/thread/{quote(peer_name)}?lang={lang}", status_code=303)
+        set_lang_cookie(request, response, lang)
+        return response
+    with get_db() as connection:
+        peer_row = connection.execute(
+            "SELECT * FROM users WHERE username = ? AND is_active = 1",
+            (peer_name,),
+        ).fetchone()
+        if peer_row is not None and int(peer_row["id"]) != int(user["id"]):
+            cleanup_expired_chat_messages(connection)
+            connection.execute(
+                """
+                INSERT INTO chat_messages (
+                    sender_id, sender_username, recipient_id, recipient_username, message_text, created_at, read_at
+                ) VALUES (?, ?, ?, ?, ?, ?, '')
+                """,
+                (
+                    int(user["id"]),
+                    str(user["username"]),
+                    int(peer_row["id"]),
+                    str(peer_row["username"]),
+                    text,
+                    now_utc().isoformat(),
+                ),
+            )
+    response = RedirectResponse(f"/chatchit/thread/{quote(peer_name)}?lang={lang}", status_code=303)
+    set_lang_cookie(request, response, lang)
+    return response
+
+
+@app.get("/chatchit/poll")
+async def chatchit_poll(request: Request, peer: str = "") -> JSONResponse:
+    user = current_user(request)
+    if user is None:
+        return JSONResponse({"ok": False, "detail": "auth required"}, status_code=403)
+    peer_name = (peer or "").strip()
+    with get_db() as connection:
+        messages = fetch_chat_messages(connection, user, peer_name) if peer_name else []
+        unread = fetch_chat_unread_count(connection, user)
+        missed = fetch_chat_missed(connection, user)
+    return JSONResponse(
+        {
+            "ok": True,
+            "unread": unread,
+            "messages": [
+                {
+                    "id": int(item["id"]),
+                    "sender": str(item["sender_username"]),
+                    "text": str(item["message_text"]),
+                    "created": human_datetime(str(item["created_at"])),
+                    "own": int(item["sender_id"]) == int(user["id"]),
+                }
+                for item in messages
+            ],
+            "missed": missed,
+        }
+    )
+
+
+@app.get("/chatchit/search-users")
+async def chatchit_search_users(request: Request, q: str = "") -> JSONResponse:
+    user = current_user(request)
+    if user is None:
+        return JSONResponse({"ok": False, "items": []}, status_code=403)
+    with get_db() as connection:
+        items = search_chat_users(connection, user, q)
+    return JSONResponse({"ok": True, "items": items})
 
 
 @app.get("/share/{token}")
@@ -4033,6 +4546,17 @@ async def login_page(request: Request) -> RedirectResponse:
 async def signup_page(request: Request) -> RedirectResponse:
     lang = get_lang(request)
     return RedirectResponse(f"/?auth=1&mode=signup&lang={lang}", status_code=303)
+
+
+@app.post("/notices/mark-read")
+async def notices_mark_read(request: Request, csrf_token: str = Form(...)) -> JSONResponse:
+    verify_csrf(request, csrf_token)
+    user = current_user(request)
+    if user is None:
+        return JSONResponse({"ok": True, "unread": 0})
+    with get_db() as connection:
+        mark_all_notices_as_read(connection, user)
+    return JSONResponse({"ok": True, "unread": 0})
 
 
 @app.post("/login")
@@ -5017,6 +5541,143 @@ async def admin_remove_ngrok_link(
             connection.execute("DELETE FROM ngrok_links WHERE id = ?", (link_id,))
     response = RedirectResponse(
         f"{admin_redirect_target(lang, normalize_admin_tab(tab))}&notice={quote(t['admin_ngrok_removed_notice'])}",
+        status_code=303,
+    )
+    set_lang_cookie(request, response, lang)
+    return response
+
+
+@app.post("/admin/notices/upload-image")
+async def admin_upload_notice_image(
+    request: Request,
+    csrf_token: str = Form(...),
+    image_file: UploadFile = File(...),
+) -> JSONResponse:
+    verify_csrf(request, csrf_token)
+    require_admin(request)
+    filename = str(image_file.filename or "").strip().lower()
+    if not filename:
+        return JSONResponse({"ok": False, "detail": "missing filename"}, status_code=400)
+    ext = Path(filename).suffix.lower()
+    if ext not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+        return JSONResponse({"ok": False, "detail": "unsupported image type"}, status_code=400)
+    raw = await image_file.read()
+    if not raw or len(raw) > 12 * 1024 * 1024:
+        return JSONResponse({"ok": False, "detail": "invalid image size"}, status_code=400)
+    digest = hash_bytes(raw)[:24]
+    stored_name = f"{digest}{ext}"
+    stored_path = NOTICE_ASSETS_DIR / stored_name
+    if not stored_path.exists():
+        stored_path.write_bytes(raw)
+    return JSONResponse({"ok": True, "url": f"/notice-assets/{stored_name}"})
+
+
+@app.post("/admin/notices/save")
+async def admin_save_notice(
+    request: Request,
+    csrf_token: str = Form(...),
+    tab: str = Form("notices"),
+    notice_id: str = Form(""),
+    title: str = Form(...),
+    content_html: str = Form(""),
+    pin_now: bool = Form(False),
+) -> RedirectResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    admin_user = require_admin(request)
+    verify_csrf(request, csrf_token)
+    title_value = re.sub(r"\s+", " ", (title or "").strip())[:220]
+    content_value = strip_dangerous_notice_html(content_html)
+    if not title_value or not content_value:
+        notice = t["admin_notice_saved"]
+        response = RedirectResponse(f"{admin_redirect_target(lang, tab)}&notice={quote(notice)}", status_code=303)
+        set_lang_cookie(request, response, lang)
+        return response
+    now_iso = now_utc().isoformat()
+    with get_db() as connection:
+        if pin_now:
+            pinned_count = int(connection.execute("SELECT COUNT(*) FROM notices WHERE is_pinned = 1").fetchone()[0])
+            is_update = notice_id.strip().isdigit()
+            if pinned_count >= 2 and not is_update:
+                response = RedirectResponse(
+                    f"{admin_redirect_target(lang, tab)}&notice={quote(t['admin_notice_pinned_limit'])}",
+                    status_code=303,
+                )
+                set_lang_cookie(request, response, lang)
+                return response
+        if notice_id.strip().isdigit():
+            connection.execute(
+                """
+                UPDATE notices
+                SET title = ?, content_html = ?, is_pinned = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (title_value, content_value, 1 if pin_now else 0, now_iso, int(notice_id)),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO notices (title, content_html, is_pinned, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (title_value, content_value, 1 if pin_now else 0, str(admin_user["username"]), now_iso, now_iso),
+            )
+    response = RedirectResponse(
+        f"{admin_redirect_target(lang, tab)}&notice={quote(t['admin_notice_saved'])}",
+        status_code=303,
+    )
+    set_lang_cookie(request, response, lang)
+    return response
+
+
+@app.post("/admin/notices/{notice_id}/pin")
+async def admin_pin_notice(
+    request: Request,
+    notice_id: int,
+    csrf_token: str = Form(...),
+    tab: str = Form("notices"),
+) -> RedirectResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    require_admin(request)
+    verify_csrf(request, csrf_token)
+    with get_db() as connection:
+        row = connection.execute("SELECT * FROM notices WHERE id = ?", (notice_id,)).fetchone()
+        if row is not None:
+            next_pin = 0 if int(row["is_pinned"] or 0) else 1
+            if next_pin == 1:
+                pinned_count = int(connection.execute("SELECT COUNT(*) FROM notices WHERE is_pinned = 1").fetchone()[0])
+                if pinned_count >= 2:
+                    response = RedirectResponse(
+                        f"{admin_redirect_target(lang, tab)}&notice={quote(t['admin_notice_pinned_limit'])}",
+                        status_code=303,
+                    )
+                    set_lang_cookie(request, response, lang)
+                    return response
+            connection.execute(
+                "UPDATE notices SET is_pinned = ?, updated_at = ? WHERE id = ?",
+                (next_pin, now_utc().isoformat(), notice_id),
+            )
+    response = RedirectResponse(admin_redirect_target(lang, tab), status_code=303)
+    set_lang_cookie(request, response, lang)
+    return response
+
+
+@app.post("/admin/notices/{notice_id}/delete")
+async def admin_delete_notice(
+    request: Request,
+    notice_id: int,
+    csrf_token: str = Form(...),
+    tab: str = Form("notices"),
+) -> RedirectResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    require_admin(request)
+    verify_csrf(request, csrf_token)
+    with get_db() as connection:
+        connection.execute("DELETE FROM notices WHERE id = ?", (notice_id,))
+    response = RedirectResponse(
+        f"{admin_redirect_target(lang, tab)}&notice={quote(t['admin_notice_deleted'])}",
         status_code=303,
     )
     set_lang_cookie(request, response, lang)

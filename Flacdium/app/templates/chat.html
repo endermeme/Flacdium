@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="viewport-shell">
+    <section class="dashboard chat-dashboard">
+      {% if notice %}
+        <div class="notice-box">{{ notice }}</div>
+      {% endif %}
+      <div class="support-note">{{ t["chat_warning"] }}</div>
+      <main class="chat-screen">
+        <section class="chat-thread-panel chat-thread-panel-full">
+          <div class="chat-toolbar-row">
+            <div class="chat-search-wrap">
+              <label>
+                <span>{{ t["chat_search_user"] }}</span>
+                <input type="text" value="{{ chat_peer }}" data-chat-user-search autocomplete="off">
+              </label>
+              <div class="chat-search-suggest" data-chat-user-suggest></div>
+            </div>
+            <button type="button" class="mini-button" data-open-missed>{{ t["chat_missed_button"] }}</button>
+          </div>
+
+          <div class="chat-thread-list" data-chat-thread data-chat-peer="{{ chat_peer }}" data-chat-you="{{ current_user['username'] }}">
+            {% if chat_peer %}
+              {% for msg in chat_messages %}
+                <article class="chat-bubble {% if msg['sender_id'] == current_user['id'] %}is-own{% endif %}">
+                  <div class="chat-bubble-head">
+                    <strong>{{ t["chat_you"] if msg['sender_id'] == current_user['id'] else msg["sender_username"] }}</strong>
+                    <span>{{ msg["created_at"] }}</span>
+                  </div>
+                  <div class="chat-bubble-text">{{ msg["message_text"] }}</div>
+                </article>
+              {% else %}
+                <div class="empty-row">{{ t["chat_no_messages"] }}</div>
+              {% endfor %}
+            {% else %}
+              <div class="empty-row">{{ t["chat_pick_user"] }}</div>
+            {% endif %}
+          </div>
+
+          <form class="chat-send-form" method="post" action="/chatchit/send">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="peer" value="{{ chat_peer }}" data-chat-peer-hidden>
+            <input type="text" name="message" maxlength="2000" placeholder="{{ t['chat_input'] }}" {% if not chat_peer %}disabled{% endif %} required>
+            <button type="submit" {% if not chat_peer %}disabled{% endif %}>{{ t["chat_send"] }}</button>
+          </form>
+        </section>
+      </main>
+
+      <div class="chat-missed-overlay" data-chat-missed-overlay>
+        <div class="chat-missed-card">
+          <div class="auth-head">
+            <strong>{{ t["chat_missed"] }}</strong>
+            <button type="button" class="mini-link" data-close-missed>{{ t["close"] }}</button>
+          </div>
+          <div class="chat-missed-list" data-chat-missed>
+            {% for item in chat_missed %}
+              <a href="/chatchit/thread/{{ item['username'] | urlencode }}?lang={{ lang }}" class="chat-missed-item">
+                <span>{{ item["username"] }}</span>
+                <strong>{{ item["unread"] }}</strong>
+              </a>
+            {% else %}
+              <div class="empty-row">{{ t["chat_empty_missed"] }}</div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+{% endblock %}

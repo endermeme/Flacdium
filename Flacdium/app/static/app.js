@@ -1,5 +1,6 @@
 const body = document.body;
 const authOverlay = document.querySelector("[data-auth-overlay]");
+const noticeOverlay = document.querySelector("[data-notice-overlay]");
 const quickfindOverlay = document.querySelector("[data-quickfind-overlay]");
 const spectrumOverlay = document.querySelector("[data-spectrum-overlay]");
 const spectrumImage = document.querySelector("[data-spectrum-image]");
@@ -18,9 +19,15 @@ const uploadProgressPercent = document.querySelector("[data-upload-progress-perc
 const nextFields = Array.from(document.querySelectorAll("[data-next-field]"));
 const authTabs = Array.from(document.querySelectorAll("[data-auth-tab]"));
 const authForms = Array.from(document.querySelectorAll("[data-auth-form]"));
+const noticeButton = document.querySelector("[data-open-notice]");
+const noticeLabel = document.querySelector("[data-notice-label]");
+const chatLink = document.querySelector("[data-chat-link]");
+const chatLabel = document.querySelector("[data-chat-label]");
 
 let spectrumRequestId = 0;
 let uploadInFlight = false;
+let noticeReadSynced = false;
+let chatPollTimer = 0;
 function parseNullableInt(value) {
   if (value === undefined || value === null || value === "") return null;
   const parsed = Number.parseInt(value, 10);
@@ -78,7 +85,7 @@ function openOverlay(overlay) {
 function closeOverlay(overlay) {
   if (!overlay) return;
   overlay.classList.remove("is-visible");
-  if (!document.querySelector(".auth-overlay.is-visible, .quickfind-overlay.is-visible, .spectrum-overlay.is-visible, .player-overlay.is-visible")) {
+  if (!document.querySelector(".auth-overlay.is-visible, .notice-overlay.is-visible, .quickfind-overlay.is-visible, .spectrum-overlay.is-visible, .player-overlay.is-visible")) {
     body.classList.remove("auth-open");
   }
 }
@@ -97,6 +104,34 @@ function openAuth(mode = "login", nextTarget = window.location.pathname + window
 
 function closeAuth() {
   closeOverlay(authOverlay);
+}
+
+function openNotice() {
+  openOverlay(noticeOverlay);
+  if (noticeReadSynced) return;
+  if (!noticeButton || !noticeLabel) return;
+  const csrfToken = body.dataset.csrfToken || "";
+  if (!csrfToken) return;
+  noticeReadSynced = true;
+  const form = new FormData();
+  form.append("csrf_token", csrfToken);
+  fetch("/notices/mark-read", {
+    method: "POST",
+    body: form,
+    credentials: "same-origin",
+  })
+    .then(() => {
+      noticeButton.classList.remove("has-unread");
+      const defaultLabel = noticeButton.dataset.noticeLabelDefault || noticeLabel.textContent || "";
+      noticeLabel.textContent = defaultLabel;
+    })
+    .catch(() => {
+      noticeReadSynced = false;
+    });
+}
+
+function closeNotice() {
+  closeOverlay(noticeOverlay);
 }
 
 function openQuickfind() {
@@ -410,11 +445,23 @@ document.addEventListener("click", (event) => {
     openQuickfind();
     return;
   }
+  const openNoticeButton = event.target.closest("[data-open-notice]");
+  if (openNoticeButton) {
+    event.preventDefault();
+    openNotice();
+    return;
+  }
 
   const closeQuickfindButton = event.target.closest("[data-close-quickfind]");
   if (closeQuickfindButton) {
     event.preventDefault();
     closeQuickfind();
+    return;
+  }
+  const closeNoticeButton = event.target.closest("[data-close-notice]");
+  if (closeNoticeButton) {
+    event.preventDefault();
+    closeNotice();
     return;
   }
 
@@ -608,16 +655,199 @@ document.querySelectorAll("[data-bulk-form]").forEach((form) => {
 if (body.dataset.authOpen === "1") {
   openAuth(body.dataset.authMode || "login");
 }
-[authOverlay, quickfindOverlay, spectrumOverlay, playerOverlay].forEach((overlay) => {
+[authOverlay, noticeOverlay, quickfindOverlay, spectrumOverlay, playerOverlay].forEach((overlay) => {
   if (!overlay) return;
   overlay.addEventListener("click", (event) => {
     if (event.target !== overlay) return;
     if (overlay === authOverlay) closeAuth();
+    if (overlay === noticeOverlay) closeNotice();
     if (overlay === quickfindOverlay) closeQuickfind();
     if (overlay === spectrumOverlay) closeSpectrum();
     if (overlay === playerOverlay) closePlayer();
   });
 });
+
+document.querySelectorAll("[data-editor-toolbar]").forEach((toolbar) => {
+  const editorId = toolbar.dataset.editorTarget || "";
+  const editor = document.getElementById(editorId);
+  const hidden = document.querySelector(`[data-editor-hidden='${editorId}']`);
+  if (!editor || !hidden) return;
+
+  const syncEditor = () => {
+    hidden.value = editor.innerHTML;
+  };
+  editor.addEventListener("input", syncEditor);
+  syncEditor();
+
+  toolbar.querySelectorAll("[data-editor-cmd]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const cmd = button.dataset.editorCmd || "";
+      const value = button.dataset.editorValue || "";
+      editor.focus();
+      document.execCommand(cmd, false, value);
+      syncEditor();
+    });
+  });
+
+  const linkButton = toolbar.querySelector("[data-editor-link]");
+  if (linkButton) {
+    linkButton.addEventListener("click", () => {
+      const href = window.prompt("URL");
+      if (!href) return;
+      editor.focus();
+      document.execCommand("createLink", false, href.trim());
+      syncEditor();
+    });
+  }
+
+  const imageInput = toolbar.querySelector("[data-editor-image-upload]");
+  if (imageInput) {
+    imageInput.addEventListener("change", async () => {
+      const file = imageInput.files && imageInput.files[0];
+      if (!file) return;
+      const form = new FormData();
+      const csrfInput = document.querySelector("input[name='csrf_token']");
+      form.append("csrf_token", csrfInput ? csrfInput.value : "");
+      form.append("image_file", file);
+      try {
+        const response = await fetch("/admin/notices/upload-image", {
+          method: "POST",
+          body: form,
+          credentials: "same-origin",
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok || !payload.url) throw new Error("upload failed");
+        editor.focus();
+        document.execCommand("insertImage", false, payload.url);
+        syncEditor();
+      } catch (_error) {
+        window.alert("upload image failed");
+      } finally {
+        imageInput.value = "";
+      }
+    });
+  }
+});
+
+const chatThread = document.querySelector("[data-chat-thread]");
+const chatMissedContainer = document.querySelector("[data-chat-missed]");
+const chatUserSearch = document.querySelector("[data-chat-user-search]");
+const chatUserSuggest = document.querySelector("[data-chat-user-suggest]");
+const chatPeerHidden = document.querySelector("[data-chat-peer-hidden]");
+const chatMissedOverlay = document.querySelector("[data-chat-missed-overlay]");
+if (chatThread && chatLink && chatLabel) {
+  let peer = chatThread.dataset.chatPeer || "";
+  const renderChat = (payload) => {
+    if (!payload || !payload.ok) return;
+    const unread = Number(payload.unread || 0);
+    if (unread > 0) {
+      chatLink.classList.add("has-unread");
+      const labelTemplate = chatLink.dataset.chatLabelNew || "new chatchit ({count})";
+      chatLabel.textContent = labelTemplate.replace("{count}", String(unread));
+    } else {
+      chatLink.classList.remove("has-unread");
+      chatLabel.textContent = chatLink.dataset.chatLabelDefault || "chatchit";
+    }
+    if (Array.isArray(payload.missed) && chatMissedContainer) {
+      chatMissedContainer.innerHTML = payload.missed.length > 0
+        ? payload.missed.map((item) => {
+          const href = `/chatchit/thread/${encodeURIComponent(item.username)}`;
+          return `<a href="${href}" class="chat-missed-item"><span>${item.username}</span><strong>${item.unread}</strong></a>`;
+        }).join("")
+        : '<div class="empty-row">no missed</div>';
+    }
+    if (Array.isArray(payload.messages)) {
+      if (payload.messages.length === 0) {
+        chatThread.innerHTML = '<div class="empty-row">no messages</div>';
+        return;
+      }
+      chatThread.innerHTML = payload.messages.map((msg) => {
+        const own = msg.own ? " is-own" : "";
+        const who = msg.own ? "you" : msg.sender;
+        return `<article class="chat-bubble${own}"><div class="chat-bubble-head"><strong>${who}</strong><span>${msg.created}</span></div><div class="chat-bubble-text"></div></article>`;
+      }).join("");
+      const bubbles = chatThread.querySelectorAll(".chat-bubble-text");
+      payload.messages.forEach((msg, index) => {
+        const node = bubbles[index];
+        if (node) node.textContent = msg.text || "";
+      });
+      chatThread.scrollTop = chatThread.scrollHeight;
+    }
+  };
+  const runSearch = () => {
+    if (!chatUserSearch || !chatUserSuggest) return;
+    const q = (chatUserSearch.value || "").trim();
+    if (q.length < 4) {
+      chatUserSuggest.classList.remove("is-open");
+      chatUserSuggest.innerHTML = "";
+      return;
+    }
+    fetch(`/chatchit/search-users?q=${encodeURIComponent(q)}`, {
+      headers: {"X-Requested-With": "XMLHttpRequest"},
+      credentials: "same-origin",
+    })
+      .then((res) => res.ok ? res.json() : null)
+      .then((payload) => {
+        if (!payload || !payload.ok) return;
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        if (items.length === 0) {
+          chatUserSuggest.classList.remove("is-open");
+          chatUserSuggest.innerHTML = "";
+          return;
+        }
+        chatUserSuggest.classList.add("is-open");
+        chatUserSuggest.innerHTML = items.map((item) => `<button type="button" class="chat-search-item" data-chat-select-user="${item.username}">${item.username}</button>`).join("");
+      })
+      .catch(() => {
+        chatUserSuggest.classList.remove("is-open");
+      });
+  };
+  if (chatUserSearch) {
+    chatUserSearch.addEventListener("input", () => {
+      window.setTimeout(runSearch, 120);
+    });
+  }
+  document.addEventListener("click", (event) => {
+    const openMissedButton = event.target.closest("[data-open-missed]");
+    if (openMissedButton && chatMissedOverlay) {
+      event.preventDefault();
+      chatMissedOverlay.classList.add("is-visible");
+      return;
+    }
+    const closeMissedButton = event.target.closest("[data-close-missed]");
+    if (closeMissedButton && chatMissedOverlay) {
+      event.preventDefault();
+      chatMissedOverlay.classList.remove("is-visible");
+      return;
+    }
+    if (chatMissedOverlay && event.target === chatMissedOverlay) {
+      chatMissedOverlay.classList.remove("is-visible");
+      return;
+    }
+    const selectUser = event.target.closest("[data-chat-select-user]");
+    if (!selectUser) return;
+    const username = selectUser.dataset.chatSelectUser || "";
+    if (!username) return;
+    window.location.href = `/chatchit/thread/${encodeURIComponent(username)}`;
+  });
+  const pollChat = () => {
+    const targetPeer = (chatPeerHidden && chatPeerHidden.value) || peer || "";
+    const query = targetPeer ? `?peer=${encodeURIComponent(targetPeer)}` : "";
+    fetch(`/chatchit/poll${query}`, {
+      headers: {"X-Requested-With": "XMLHttpRequest"},
+      credentials: "same-origin",
+    })
+      .then((res) => res.ok ? res.json() : null)
+      .then((payload) => {
+        renderChat(payload);
+      })
+      .catch(() => {})
+      .finally(() => {
+        chatPollTimer = window.setTimeout(pollChat, 3000);
+      });
+  };
+  pollChat();
+}
 
 if (window.XMLHttpRequest && window.FormData) {
   document.addEventListener("submit", (event) => {

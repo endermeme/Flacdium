@@ -17,6 +17,7 @@
     data-auth-mode="{{ auth_mode }}"
     data-user-authenticated="{{ '1' if current_user else '0' }}"
     data-user-admin="{{ '1' if current_user and current_user['is_admin'] else '0' }}"
+    data-csrf-token="{{ csrf_token }}"
     data-user-upload-file-limit="{{ '' if user_upload_file_limit is none else user_upload_file_limit }}"
     data-user-upload-zip-limit="{{ '' if user_upload_zip_limit is none else user_upload_zip_limit }}"
     data-user-bundle-track-limit="{{ '' if user_bundle_track_limit is none else user_bundle_track_limit }}"
@@ -37,9 +38,40 @@
             <a href="/?sort=artist&lang={{ lang }}">{{ t["nav_artists"] }}</a>
             <a href="/?sort=album&lang={{ lang }}">{{ t["nav_albums"] }}</a>
             <a href="/?sort=uploader&lang={{ lang }}">{{ t["nav_uploaders"] }}</a>
+            <a
+              href="/chatchit?lang={{ lang }}"
+              class="{% if chat_unread_count and chat_unread_count > 0 %}nav-chat-link has-unread{% endif %}"
+              data-chat-link
+              data-chat-label-default="{{ t['nav_chat'] }}"
+              data-chat-label-new="{{ t['nav_chat_new'] }}"
+            >
+              <span data-chat-label>
+                {% if chat_unread_count and chat_unread_count > 0 %}
+                  {{ t["nav_chat_new"].format(count=chat_unread_count) }}
+                {% else %}
+                  {{ t["nav_chat"] }}
+                {% endif %}
+              </span>
+            </a>
             {% if current_user and current_user["is_admin"] %}
               <a href="/admin?lang={{ lang }}">{{ t["nav_admin"] }}</a>
             {% endif %}
+            <button
+              type="button"
+              class="nav-button nav-notice-button {% if notice_unread_count and notice_unread_count > 0 %}has-unread{% endif %}"
+              data-open-notice
+              data-notice-label-default="{{ t['nav_notice'] }}"
+              data-notice-label-new="{{ t['nav_notice_new'] }}"
+            >
+              <span aria-hidden="true">🔔</span>
+              <span data-notice-label>
+                {% if notice_unread_count and notice_unread_count > 0 %}
+                  {{ t["nav_notice_new"].format(count=notice_unread_count) }}
+                {% else %}
+                  {{ t["nav_notice"] }}
+                {% endif %}
+              </span>
+            </button>
             <button type="button" class="nav-button" data-open-quickfind>{{ t["nav_quickfind"] }}</button>
           </nav>
 
@@ -67,6 +99,29 @@
           </div>
         </div>
       </header>
+
+      <div class="notice-overlay" data-notice-overlay>
+        <div class="notice-card">
+          <div class="auth-head">
+            <strong>{{ t["notice_popup_title"] }}</strong>
+            <button type="button" class="mini-link" data-close-notice>{{ t["close"] }}</button>
+          </div>
+          <div class="notice-list">
+            {% for item in notices %}
+              <article class="notice-item">
+                <div class="notice-item-head">
+                  <strong>{{ item["title"] }}</strong>
+                  {% if item["is_pinned"] %}<span class="notice-pin">{{ t["notice_pinned"] }}</span>{% endif %}
+                </div>
+                <div class="notice-item-meta">{{ item["updated_label"] }}</div>
+                <div class="notice-item-content">{{ item["content_html"] | safe }}</div>
+              </article>
+            {% else %}
+              <div class="empty-row">{{ t["notice_empty"] }}</div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
 
       {% block content %}{% endblock %}
     </div>
