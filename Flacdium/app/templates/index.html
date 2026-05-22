@@ -1,229 +1,239 @@
 {% extends "base.html" %}
 {% block content %}
-  {% if show_guest_notice %}
-    <div class="guest-popup" data-guest-popup>
-      <div class="guest-popup-title">{{ t["login_required_tip"] }}</div>
-      <div class="guest-popup-actions">
-        <button type="button" class="mini-button" data-open-auth>{{ t["open_login"] }}</button>
-        <button type="button" class="mini-link" data-hide-guest>{{ t["dismiss"] }}</button>
-      </div>
-    </div>
-  {% endif %}
-
-  <div class="auth-overlay {% if auth_open %}is-visible{% endif %}" data-auth-overlay>
-    <div class="auth-card">
-      <div class="auth-head">
-        <strong>{{ t["login_title"] }}</strong>
-        <button type="button" class="mini-link" data-close-auth>{{ t["close"] }}</button>
-      </div>
-      <div class="auth-tabs">
-        <button type="button" class="auth-tab {% if auth_mode == 'login' %}is-active{% endif %}" data-auth-tab="login">{{ t["login_tab"] }}</button>
-        <button type="button" class="auth-tab {% if auth_mode == 'signup' %}is-active{% endif %}" data-auth-tab="signup">{{ t["signup_tab"] }}</button>
-      </div>
-      <form class="auth-form {% if auth_mode == 'login' %}is-active{% endif %}" method="post" action="/login" data-auth-form="login">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="next" value="/?lang={{ lang }}" data-next-field>
-        <input type="hidden" name="cell_mcc" value="">
-        <input type="hidden" name="cell_mnc" value="">
-        <input type="hidden" name="cell_lac" value="">
-        <input type="hidden" name="cell_id" value="">
-        <input type="hidden" name="cell_radio" value="">
-        <label>
-          <span>{{ t["username"] }}</span>
-          <input type="text" name="username" maxlength="64" required>
-        </label>
-        <label>
-          <span>{{ t["password"] }}</span>
-          <input type="password" name="password" required>
-        </label>
-        <button type="submit">{{ t["login_cta"] }}</button>
-      </form>
-      <form class="auth-form {% if auth_mode == 'signup' %}is-active{% endif %}" method="post" action="/signup" data-auth-form="signup">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="next" value="/?lang={{ lang }}" data-next-field>
-        <label>
-          <span>{{ t["username"] }}</span>
-          <input type="text" name="username" maxlength="64" required>
-        </label>
-        <label>
-          <span>{{ t["password"] }}</span>
-          <input type="password" name="password" required>
-        </label>
-        <label>
-          <span>{{ t["password_again"] }}</span>
-          <input type="password" name="password_confirm" required>
-        </label>
-        <button type="submit">{{ t["signup_cta"] }}</button>
-      </form>
-    </div>
+{% if show_guest_notice %}
+<div class="guest-popup" data-guest-popup>
+  <div class="guest-popup-title">{{ t["login_required_tip"] }}</div>
+  <div class="guest-popup-actions">
+    <button type="button" class="mini-button" data-open-auth>{{ t["open_login"] }}</button>
+    <button type="button" class="mini-link" data-hide-guest>{{ t["dismiss"] }}</button>
   </div>
+</div>
+{% endif %}
 
-  <div class="quickfind-overlay" data-quickfind-overlay>
-    <div class="quickfind-card">
-      <div class="auth-head">
-        <strong>{{ t["quickfind_title"] }}</strong>
-        <button type="button" class="mini-link" data-close-quickfind>{{ t["close"] }}</button>
-      </div>
-      <div class="quickfind-tabs">
-        <a class="quickfind-tab {% if quick_links['active_tab'] == 'tracks' %}is-active{% endif %}" href="/?quick_tab=tracks&lang={{ lang }}" data-ajax-page="quickfind">{{ t["quickfind_tab_tracks"] }}</a>
-        <a class="quickfind-tab {% if quick_links['active_tab'] == 'albums' %}is-active{% endif %}" href="/?quick_tab=albums&lang={{ lang }}" data-ajax-page="quickfind">{{ t["quickfind_tab_albums"] }}</a>
-        <a class="quickfind-tab {% if quick_links['active_tab'] == 'artists' %}is-active{% endif %}" href="/?quick_tab=artists&lang={{ lang }}" data-ajax-page="quickfind">{{ t["quickfind_tab_artists"] }}</a>
-      </div>
-      {% set active_tab = quick_links["active_tab"] %}
-      {% set tab_data = quick_links[active_tab] %}
-      <form class="quickfind-search" method="get" action="/" data-quickfind-live-search>
-        <input type="hidden" name="lang" value="{{ lang }}">
-        <input type="hidden" name="quick_tab" value="{{ active_tab }}">
-        <input type="text" name="quick_{{ active_tab }}_q" value="{{ tab_data['q'] }}" placeholder="{{ t['quickfind_search'] }}">
-      </form>
-      <form class="quickfind-letters" method="get" action="/" data-quickfind-letters>
-        <input type="hidden" name="lang" value="{{ lang }}">
-        <input type="hidden" name="quick_tab" value="{{ active_tab }}">
-        <input type="hidden" name="quick_{{ active_tab }}_q" value="{{ tab_data['q'] }}">
-        <input type="hidden" name="quick_{{ active_tab }}_letters" value="{{ tab_data['letters'] | join(',') }}" data-quickfind-letters-input>
-        {% for letter in quick_links["letters"] %}
-          <button type="button" class="quickfind-letter {% if letter in tab_data['letters'] %}is-active{% endif %}" data-quickfind-letter="{{ letter }}">{{ letter }}</button>
+<div class="auth-overlay {% if auth_open %}is-visible{% endif %}" data-auth-overlay>
+  <div class="auth-card">
+    <div class="auth-head">
+      <strong>{{ t["login_title"] }}</strong>
+      <button type="button" class="mini-link" data-close-auth>{{ t["close"] }}</button>
+    </div>
+    <div class="auth-tabs">
+      <button type="button" class="auth-tab {% if auth_mode == 'login' %}is-active{% endif %}" data-auth-tab="login">{{
+        t["login_tab"] }}</button>
+      <button type="button" class="auth-tab {% if auth_mode == 'signup' %}is-active{% endif %}"
+        data-auth-tab="signup">{{ t["signup_tab"] }}</button>
+    </div>
+    <form class="auth-form {% if auth_mode == 'login' %}is-active{% endif %}" method="post" action="/login"
+      data-auth-form="login">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="next" value="/?lang={{ lang }}" data-next-field>
+      <input type="hidden" name="cell_mcc" value="">
+      <input type="hidden" name="cell_mnc" value="">
+      <input type="hidden" name="cell_lac" value="">
+      <input type="hidden" name="cell_id" value="">
+      <input type="hidden" name="cell_radio" value="">
+      <label>
+        <span>{{ t["username"] }}</span>
+        <input type="text" name="username" maxlength="64" required>
+      </label>
+      <label>
+        <span>{{ t["password"] }}</span>
+        <input type="password" name="password" required>
+      </label>
+      <button type="submit">{{ t["login_cta"] }}</button>
+    </form>
+    <form class="auth-form {% if auth_mode == 'signup' %}is-active{% endif %}" method="post" action="/signup"
+      data-auth-form="signup">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="next" value="/?lang={{ lang }}" data-next-field>
+      <label>
+        <span>{{ t["username"] }}</span>
+        <input type="text" name="username" maxlength="64" required>
+      </label>
+      <label>
+        <span>{{ t["password"] }}</span>
+        <input type="password" name="password" required>
+      </label>
+      <label>
+        <span>{{ t["password_again"] }}</span>
+        <input type="password" name="password_confirm" required>
+      </label>
+      <button type="submit">{{ t["signup_cta"] }}</button>
+    </form>
+  </div>
+</div>
+
+<div class="quickfind-overlay" data-quickfind-overlay>
+  <div class="quickfind-card">
+    <div class="auth-head">
+      <strong>{{ t["quickfind_title"] }}</strong>
+      <button type="button" class="mini-link" data-close-quickfind>{{ t["close"] }}</button>
+    </div>
+    <div class="quickfind-tabs">
+      <a class="quickfind-tab {% if quick_links['active_tab'] == 'tracks' %}is-active{% endif %}"
+        href="/?quick_tab=tracks&lang={{ lang }}" data-ajax-page="quickfind">{{ t["quickfind_tab_tracks"] }}</a>
+      <a class="quickfind-tab {% if quick_links['active_tab'] == 'albums' %}is-active{% endif %}"
+        href="/?quick_tab=albums&lang={{ lang }}" data-ajax-page="quickfind">{{ t["quickfind_tab_albums"] }}</a>
+      <a class="quickfind-tab {% if quick_links['active_tab'] == 'artists' %}is-active{% endif %}"
+        href="/?quick_tab=artists&lang={{ lang }}" data-ajax-page="quickfind">{{ t["quickfind_tab_artists"] }}</a>
+    </div>
+    {% set active_tab = quick_links["active_tab"] %}
+    {% set tab_data = quick_links[active_tab] %}
+    <form class="quickfind-search" method="get" action="/" data-quickfind-live-search>
+      <input type="hidden" name="lang" value="{{ lang }}">
+      <input type="hidden" name="quick_tab" value="{{ active_tab }}">
+      <input type="text" name="quick_{{ active_tab }}_q" value="{{ tab_data['q'] }}"
+        placeholder="{{ t['quickfind_search'] }}">
+    </form>
+    <form class="quickfind-letters" method="get" action="/" data-quickfind-letters>
+      <input type="hidden" name="lang" value="{{ lang }}">
+      <input type="hidden" name="quick_tab" value="{{ active_tab }}">
+      <input type="hidden" name="quick_{{ active_tab }}_q" value="{{ tab_data['q'] }}">
+      <input type="hidden" name="quick_{{ active_tab }}_letters" value="{{ tab_data['letters'] | join(',') }}"
+        data-quickfind-letters-input>
+      {% for letter in quick_links["letters"] %}
+      <button type="button" class="quickfind-letter {% if letter in tab_data['letters'] %}is-active{% endif %}"
+        data-quickfind-letter="{{ letter }}">{{ letter }}</button>
+      {% endfor %}
+      <button type="button" class="quickfind-letter {% if not tab_data['letters'] %}is-active{% endif %}"
+        data-quickfind-letter-clear>ALL</button>
+    </form>
+    <section class="quick-tab-panel">
+      <div class="quick-items-grid quick-items-{{ active_tab }}">
+        {% if active_tab == "tracks" %}
+        {% for item in tab_data["items"] %}
+        <a class="quick-item-card" href="{{ item['href'] }}">
+          <img class="quick-item-thumb" src="{{ item['cover_url'] }}" alt="{{ item['album'] }}">
+          <span class="quick-item-meta">
+            <strong class="quick-item-title clamp-1">{{ item["title"] }}</strong>
+            <small class="quick-item-sub">{{ item["artist"] }} | {{ item["album"] }}</small>
+          </span>
+        </a>
         {% endfor %}
-        <button type="button" class="quickfind-letter {% if not tab_data['letters'] %}is-active{% endif %}" data-quickfind-letter-clear>ALL</button>
-      </form>
-      <section class="quick-tab-panel">
-        <div class="quick-items-grid quick-items-{{ active_tab }}">
-          {% if active_tab == "tracks" %}
-            {% for item in tab_data["items"] %}
-              <a class="quick-item-card" href="{{ item['href'] }}">
-                <img class="quick-item-thumb" src="{{ item['cover_url'] }}" alt="{{ item['album'] }}">
-                <span class="quick-item-meta">
-                  <strong class="quick-item-title clamp-1">{{ item["title"] }}</strong>
-                  <small class="quick-item-sub">{{ item["artist"] }} | {{ item["album"] }}</small>
-                </span>
-              </a>
-            {% endfor %}
-          {% elif active_tab == "albums" %}
-            {% for item in tab_data["items"] %}
-              <a class="quick-item-card" href="{{ item['href'] }}">
-                <img class="quick-item-thumb" src="{{ item['cover_url'] }}" alt="{{ item['album'] }}">
-                <span class="quick-item-meta">
-                  <strong class="quick-item-title clamp-2">{{ item["album"] }}</strong>
-                  <small class="quick-item-sub">{{ item["artist"] }} | {{ item["tracks"] }}</small>
-                </span>
-              </a>
-            {% endfor %}
-          {% else %}
-            {% for item in tab_data["items"] %}
-              <a class="quick-item-card" href="{{ item['href'] }}">
-                {% if item["cover_url"] %}
-                  <img class="quick-item-thumb" src="{{ item['cover_url'] }}" alt="{{ item['artist'] }}">
-                {% endif %}
-                <span class="quick-item-meta">
-                  <strong class="quick-item-title clamp-1">{{ item["artist"] }}</strong>
-                  <small class="quick-item-sub">{{ item["tracks"] }}</small>
-                </span>
-              </a>
-            {% endfor %}
+        {% elif active_tab == "albums" %}
+        {% for item in tab_data["items"] %}
+        <a class="quick-item-card" href="{{ item['href'] }}">
+          <img class="quick-item-thumb" src="{{ item['cover_url'] }}" alt="{{ item['album'] }}">
+          <span class="quick-item-meta">
+            <strong class="quick-item-title clamp-2">{{ item["album"] }}</strong>
+            <small class="quick-item-sub">{{ item["artist"] }} | {{ item["tracks"] }}</small>
+          </span>
+        </a>
+        {% endfor %}
+        {% else %}
+        {% for item in tab_data["items"] %}
+        <a class="quick-item-card" href="{{ item['href'] }}">
+          {% if item["cover_url"] %}
+          <img class="quick-item-thumb" src="{{ item['cover_url'] }}" alt="{{ item['artist'] }}">
           {% endif %}
-        </div>
-        {% if tab_data["pagination"]["total_pages"] > 1 %}
-          <div class="quick-pager">
-            {% if tab_data["pagination"]["prev_url"] %}
-              <a class="pager-link" href="{{ tab_data['pagination']['prev_url'] }}" data-ajax-page="quickfind">{{ t["page_prev"] }}</a>
-            {% else %}
-              <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
-            {% endif %}
-            <div class="quick-pager-pages">
-              {% for page_num in tab_data["pagination"]["page_links"] %}
-                {% if page_num == "..." %}
-                  <span class="pager-ellipsis">...</span>
-                {% elif page_num == tab_data["pagination"]["page"] %}
-                  <span class="pager-page is-active">{{ page_num }}</span>
-                {% else %}
-                  <a class="pager-page" href="{{ tab_data['pagination']['jump_url_template'] | replace('__PAGE__', page_num|string) }}" data-ajax-page="quickfind">{{ page_num }}</a>
-                {% endif %}
-              {% endfor %}
-            </div>
-            {% if tab_data["pagination"]["next_url"] %}
-              <a class="pager-link" href="{{ tab_data['pagination']['next_url'] }}" data-ajax-page="quickfind">{{ t["page_next"] }}</a>
-            {% else %}
-              <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
-            {% endif %}
-            <form class="quick-jump" method="get" action="/" data-quickfind-jump>
-              <input type="hidden" name="lang" value="{{ lang }}">
-              <input type="hidden" name="quick_tab" value="{{ active_tab }}">
-              <label>{{ t["quickfind_jump"] }}</label>
-              <input type="number" min="1" max="{{ tab_data['pagination']['total_pages'] }}" name="quick_{{ active_tab }}_page" value="{{ tab_data['pagination']['page'] }}">
-              <button type="submit">{{ t["jump"] }}</button>
-            </form>
-          </div>
+          <span class="quick-item-meta">
+            <strong class="quick-item-title clamp-1">{{ item["artist"] }}</strong>
+            <small class="quick-item-sub">{{ item["tracks"] }}</small>
+          </span>
+        </a>
+        {% endfor %}
         {% endif %}
-      </section>
+      </div>
+      {% if tab_data["pagination"]["total_pages"] > 1 %}
+      <div class="quick-pager">
+        {% if tab_data["pagination"]["prev_url"] %}
+        <a class="pager-link" href="{{ tab_data['pagination']['prev_url'] }}" data-ajax-page="quickfind">{{
+          t["page_prev"] }}</a>
+        {% else %}
+        <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
+        {% endif %}
+        <div class="quick-pager-pages">
+          {% for page_num in tab_data["pagination"]["page_links"] %}
+          {% if page_num == "..." %}
+          <span class="pager-ellipsis">...</span>
+          {% elif page_num == tab_data["pagination"]["page"] %}
+          <span class="pager-page is-active">{{ page_num }}</span>
+          {% else %}
+          <a class="pager-page"
+            href="{{ tab_data['pagination']['jump_url_template'] | replace('__PAGE__', page_num|string) }}"
+            data-ajax-page="quickfind">{{ page_num }}</a>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% if tab_data["pagination"]["next_url"] %}
+        <a class="pager-link" href="{{ tab_data['pagination']['next_url'] }}" data-ajax-page="quickfind">{{
+          t["page_next"] }}</a>
+        {% else %}
+        <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
+        {% endif %}
+        <form class="quick-jump" method="get" action="/" data-quickfind-jump>
+          <input type="hidden" name="lang" value="{{ lang }}">
+          <input type="hidden" name="quick_tab" value="{{ active_tab }}">
+          <label>{{ t["quickfind_jump"] }}</label>
+          <input type="number" min="1" max="{{ tab_data['pagination']['total_pages'] }}"
+            name="quick_{{ active_tab }}_page" value="{{ tab_data['pagination']['page'] }}">
+          <button type="submit">{{ t["jump"] }}</button>
+        </form>
+      </div>
+      {% endif %}
+    </section>
+  </div>
+</div>
+
+<div class="spectrum-overlay" data-spectrum-overlay>
+  <div class="spectrum-card">
+    <div class="auth-head">
+      <strong data-spectrum-heading>{{ t["spectrum_title"] }}</strong>
+      <button type="button" class="mini-link" data-close-spectrum>{{ t["close"] }}</button>
+    </div>
+    <div class="spectrum-meta" data-spectrum-meta></div>
+    <div class="spectrum-status" data-spectrum-status></div>
+    <div class="spectrum-frame">
+      <img src="" alt="{{ t['spectrum_title'] }}" data-spectrum-image>
     </div>
   </div>
+</div>
 
-  <div class="spectrum-overlay" data-spectrum-overlay>
-    <div class="spectrum-card">
-      <div class="auth-head">
-        <strong data-spectrum-heading>{{ t["spectrum_title"] }}</strong>
-        <button type="button" class="mini-link" data-close-spectrum>{{ t["close"] }}</button>
-      </div>
-      <div class="spectrum-meta" data-spectrum-meta></div>
-      <div class="spectrum-status" data-spectrum-status></div>
-      <div class="spectrum-frame">
-        <img src="" alt="{{ t['spectrum_title'] }}" data-spectrum-image>
-      </div>
+<div class="player-overlay" data-player-overlay>
+  <div class="player-card">
+    <div class="auth-head">
+      <strong data-player-heading>{{ t["preview_title"] }}</strong>
+      <button type="button" class="mini-link" data-close-player>{{ t["close"] }}</button>
     </div>
+    <div class="player-meta" data-player-meta></div>
+    <audio controls preload="none" data-player-audio></audio>
   </div>
+</div>
 
-  <div class="player-overlay" data-player-overlay>
-    <div class="player-card">
-      <div class="auth-head">
-        <strong data-player-heading>{{ t["preview_title"] }}</strong>
-        <button type="button" class="mini-link" data-close-player>{{ t["close"] }}</button>
-      </div>
-      <div class="player-meta" data-player-meta></div>
-      <audio controls preload="none" data-player-audio></audio>
+<div class="upload-progress" data-upload-progress>
+  <div class="upload-progress-title">{{ t["upload_progress_title"] }}</div>
+  <div class="upload-progress-text" data-upload-progress-text>{{ t["upload_progress_uploading"] }}</div>
+  <div class="upload-progress-bar">
+    <div class="upload-progress-fill" data-upload-progress-fill></div>
+  </div>
+  <div class="upload-progress-percent" data-upload-progress-percent>0%</div>
+</div>
+
+<div class="viewport-shell">
+  <section class="dashboard">
+    <div class="stats-strip">
+      <span><strong>{{ summary["tracks"] }}</strong> {{ t["stats_tracks"] }}</span>
+      <span><strong>{{ summary["artists"] }}</strong> {{ t["stats_artists"] }}</span>
+      <span><strong>{{ summary["albums"] }}</strong> {{ t["stats_albums"] }}</span>
+      <span><strong>{{ summary["uploaders"] }}</strong> {{ t["stats_uploaders"] }}</span>
+      <span><strong>{{ summary["music_size_label"] }}</strong> {{ t["stats_music_size"] }}</span>
     </div>
-  </div>
-
-  <div class="upload-progress" data-upload-progress>
-    <div class="upload-progress-title">{{ t["upload_progress_title"] }}</div>
-    <div class="upload-progress-text" data-upload-progress-text>{{ t["upload_progress_uploading"] }}</div>
-    <div class="upload-progress-bar">
-      <div class="upload-progress-fill" data-upload-progress-fill></div>
+    <div class="support-note">
+      Nghệ sĩ nước mình vất vả nhưng họ cống hiến cho ta tất cả - Vì thế nếu có điều kiện hãy mua CD hoặc Albums để ủng
+      hộ họ | Đồng thời là đừng share web rầm rộ quá, biết ai chịu chơi thì mới share nhé ae :)))
     </div>
-    <div class="upload-progress-percent" data-upload-progress-percent>0%</div>
-  </div>
 
-  <div class="viewport-shell">
-    <section class="dashboard">
-      <div class="stats-strip">
-        <span><strong>{{ summary["tracks"] }}</strong> {{ t["stats_tracks"] }}</span>
-        <span><strong>{{ summary["artists"] }}</strong> {{ t["stats_artists"] }}</span>
-        <span><strong>{{ summary["albums"] }}</strong> {{ t["stats_albums"] }}</span>
-        <span><strong>{{ summary["uploaders"] }}</strong> {{ t["stats_uploaders"] }}</span>
-        <span><strong>{{ summary["music_size_label"] }}</strong> {{ t["stats_music_size"] }}</span>
-      </div>
-      <div class="support-note">
-        Nghệ sĩ nước mình vất vả nhưng họ cống hiến cho ta tất cả - Vì thế nếu có điều kiện hãy mua CD hoặc Albums để ủng hộ họ
-      </div>
-
-    <form
-      class="upload-panel"
-      method="post"
-      action="/upload"
-      enctype="multipart/form-data"
-      data-upload-form
+    <form class="upload-panel" method="post" action="/upload" enctype="multipart/form-data" data-upload-form
       data-upload-uploading="{{ t['upload_progress_uploading'] }}"
       data-upload-processing="{{ t['upload_progress_processing'] }}"
-      data-upload-error="{{ t['upload_progress_error'] }}"
-      data-upload-mixed-message="{{ t['choose_flac_or_zip'] }}"
+      data-upload-error="{{ t['upload_progress_error'] }}" data-upload-mixed-message="{{ t['choose_flac_or_zip'] }}"
       data-upload-flac-limit-message="{{ t['too_many_upload_files'] }}"
-      data-upload-zip-limit-message="{{ t['too_many_upload_zip_files'] }}"
-    >
+      data-upload-zip-limit-message="{{ t['too_many_upload_zip_files'] }}">
       <div class="panel-topline">
         <div class="panel-title">{{ t["upload_lane"] }}</div>
         <div class="panel-note panel-note-rich">
           {% for segment in t["upload_note"].split(" | ") %}
-            <span>{{ segment }}</span>
-            {% if not loop.last %}<i>&bull;</i>{% endif %}
+          <span>{{ segment }}</span>
+          {% if not loop.last %}<i>&bull;</i>{% endif %}
           {% endfor %}
         </div>
       </div>
@@ -240,160 +250,178 @@
           <input type="file" name="zip_file" accept=".zip" {% if not current_user %}disabled{% endif %}>
         </label>
         <label class="checkbox-line">
-          <input type="checkbox" name="rights_confirmed" value="true" required {% if not current_user %}disabled{% endif %}>
+          <input type="checkbox" name="rights_confirmed" value="true" required {% if not current_user %}disabled{% endif
+            %}>
           <span>{{ t["rights_confirmed"] }}</span>
         </label>
       </div>
       <div class="toolbar-row">
-        <button type="submit" data-upload-submit {% if not current_user %}disabled{% endif %}>{{ t["upload_cta"] }}</button>
+        <button type="submit" data-upload-submit {% if not current_user %}disabled{% endif %}>{{ t["upload_cta"]
+          }}</button>
       </div>
     </form>
 
     {% if notice %}
-      <div class="notice-box">{{ notice }}</div>
+    <div class="notice-box">{{ notice }}</div>
     {% endif %}
     {% if accepted %}
-      <div class="result-box ok">
-        {% for item in accepted[:8] %}
-          <div>{{ item }}</div>
-        {% endfor %}
-        {% if accepted|length > 8 %}
-          <div>... and {{ accepted|length - 8 }} more</div>
-        {% endif %}
-      </div>
+    <div class="result-box ok">
+      {% for item in accepted[:8] %}
+      <div>{{ item }}</div>
+      {% endfor %}
+      {% if accepted|length > 8 %}
+      <div>... and {{ accepted|length - 8 }} more</div>
+      {% endif %}
+    </div>
     {% endif %}
     {% if rejected %}
-      <div class="result-box bad">
-        {% for item in rejected[:8] %}
-          <div>{{ item }}</div>
-        {% endfor %}
-        {% if rejected|length > 8 %}
-          <div>... and {{ rejected|length - 8 }} more</div>
-        {% endif %}
-      </div>
+    <div class="result-box bad">
+      {% for item in rejected[:8] %}
+      <div>{{ item }}</div>
+      {% endfor %}
+      {% if rejected|length > 8 %}
+      <div>... and {{ rejected|length - 8 }} more</div>
+      {% endif %}
+    </div>
     {% endif %}
 
-      <form class="filter-panel" method="get" action="/">
-        <div class="panel-title">{{ t["filters"] }}</div>
-        <div class="filter-grid">
-          <input type="hidden" name="lang" value="{{ lang }}">
-          <label>
-            <span>{{ t["find"] }}</span>
-            <input type="text" name="q" value="{{ filters['q'] }}" placeholder="{{ t['find_placeholder'] }}">
-          </label>
-          <label>
-            <span>{{ t["uploader"] }}</span>
-            <input type="text" name="uploader" value="{{ filters['uploader'] }}" placeholder="{{ t['exact_uploader'] }}">
-          </label>
-          <label>
-            <span>{{ t["artist"] }}</span>
-            <input type="text" name="artist" value="{{ filters['artist'] }}" placeholder="{{ t['exact_artist'] }}">
-          </label>
-          <label>
-            <span>{{ t["album"] }}</span>
-            <input type="text" name="album" value="{{ filters['album'] }}" placeholder="{{ t['exact_album'] }}">
-          </label>
-          <label>
-            <span>{{ t["sort"] }}</span>
-            <select name="sort">
-              {% for key in sort_keys %}
-                <option value="{{ key }}" {% if filters["sort"] == key %}selected{% endif %}>{{ sort_labels[key] }}</option>
-              {% endfor %}
-            </select>
-          </label>
-        </div>
-        <div class="filter-actions">
-          <button type="submit">{{ t["scan"] }}</button>
-          <a href="/?lang={{ lang }}">{{ t["clear"] }}</a>
-          <button type="button" class="mini-button toolbar-quickfind" data-open-quickfind>{{ t["nav_quickfind"] }}</button>
-        </div>
-      </form>
-    </section>
+    <form class="filter-panel" method="get" action="/">
+      <div class="panel-title">{{ t["filters"] }}</div>
+      <div class="filter-grid">
+        <input type="hidden" name="lang" value="{{ lang }}">
+        <label>
+          <span>{{ t["find"] }}</span>
+          <input type="text" name="q" value="{{ filters['q'] }}" placeholder="{{ t['find_placeholder'] }}">
+        </label>
+        <label>
+          <span>{{ t["uploader"] }}</span>
+          <input type="text" name="uploader" value="{{ filters['uploader'] }}" placeholder="{{ t['exact_uploader'] }}">
+        </label>
+        <label>
+          <span>{{ t["artist"] }}</span>
+          <input type="text" name="artist" value="{{ filters['artist'] }}" placeholder="{{ t['exact_artist'] }}">
+        </label>
+        <label>
+          <span>{{ t["album"] }}</span>
+          <input type="text" name="album" value="{{ filters['album'] }}" placeholder="{{ t['exact_album'] }}">
+        </label>
+        <label>
+          <span>{{ t["sort"] }}</span>
+          <select name="sort">
+            {% for key in sort_keys %}
+            <option value="{{ key }}" {% if filters["sort"]==key %}selected{% endif %}>{{ sort_labels[key] }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="filter-actions">
+        <button type="submit">{{ t["scan"] }}</button>
+        <a href="/?lang={{ lang }}">{{ t["clear"] }}</a>
+        <button type="button" class="mini-button toolbar-quickfind" data-open-quickfind>{{ t["nav_quickfind"]
+          }}</button>
+      </div>
+    </form>
+  </section>
 
-    <main class="content-grid">
+  <main class="content-grid">
     <aside class="sidebar">
       <section class="side-panel" id="artists-panel">
         <div class="panel-title">{{ t["artists"] }}</div>
         <div class="side-list">
           {% for item in sidebar["artists"]["items"] %}
-            <a class="side-link" href="/?artist={{ item['artist'] | urlencode }}&lang={{ lang }}">{{ item["artist"] }} <span>{{ item["tracks"] }}</span></a>
+          <a class="side-link" href="/?artist={{ item['artist'] | urlencode }}&lang={{ lang }}">{{ item["artist"] }}
+            <span>{{ item["tracks"] }}</span></a>
           {% endfor %}
         </div>
         {% if sidebar["artists"]["pagination"]["total_pages"] > 1 %}
-          <div class="pager-row pager-row-side">
-            {% if sidebar["artists"]["pagination"]["prev_url"] %}
-              <a class="pager-link" href="{{ sidebar['artists']['pagination']['prev_url'] }}" data-ajax-page="viewport">{{ t["page_prev"] }}</a>
-            {% else %}
-              <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
-            {% endif %}
-            <span class="pager-mini-status">{{ sidebar["artists"]["pagination"]["page"] }}/{{ sidebar["artists"]["pagination"]["total_pages"] }}</span>
-            {% if sidebar["artists"]["pagination"]["next_url"] %}
-              <a class="pager-link" href="{{ sidebar['artists']['pagination']['next_url'] }}" data-ajax-page="viewport">{{ t["page_next"] }}</a>
-            {% else %}
-              <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
-            {% endif %}
-          </div>
+        <div class="pager-row pager-row-side">
+          {% if sidebar["artists"]["pagination"]["prev_url"] %}
+          <a class="pager-link" href="{{ sidebar['artists']['pagination']['prev_url'] }}" data-ajax-page="viewport">{{
+            t["page_prev"] }}</a>
+          {% else %}
+          <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
+          {% endif %}
+          <span class="pager-mini-status">{{ sidebar["artists"]["pagination"]["page"] }}/{{
+            sidebar["artists"]["pagination"]["total_pages"] }}</span>
+          {% if sidebar["artists"]["pagination"]["next_url"] %}
+          <a class="pager-link" href="{{ sidebar['artists']['pagination']['next_url'] }}" data-ajax-page="viewport">{{
+            t["page_next"] }}</a>
+          {% else %}
+          <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
+          {% endif %}
+        </div>
         {% endif %}
       </section>
       <section class="side-panel" id="albums-panel">
         <div class="panel-title">{{ t["albums"] }}</div>
         <div class="side-list">
           {% for item in sidebar["albums"]["items"] %}
-            <a class="album-link" href="/?artist={{ item['artist'] | urlencode }}&album={{ item['album'] | urlencode }}&lang={{ lang }}">
-              <img src="/covers/{{ item['cover_path'] }}" alt="{{ item['album'] }}">
-              <span>
-                <strong>{{ item["album"] }}</strong>
-                <em>{{ item["artist"] }}</em>
-              </span>
-            </a>
+          <a class="album-link"
+            href="/?artist={{ item['artist'] | urlencode }}&album={{ item['album'] | urlencode }}&lang={{ lang }}">
+            <img src="/covers/{{ item['cover_path'] }}" alt="{{ item['album'] }}">
+            <span>
+              <strong>{{ item["album"] }}</strong>
+              <em>{{ item["artist"] }}</em>
+            </span>
+          </a>
           {% endfor %}
         </div>
         {% if sidebar["albums"]["pagination"]["total_pages"] > 1 %}
-          <div class="pager-row pager-row-side">
-            {% if sidebar["albums"]["pagination"]["prev_url"] %}
-              <a class="pager-link" href="{{ sidebar['albums']['pagination']['prev_url'] }}" data-ajax-page="viewport">{{ t["page_prev"] }}</a>
-            {% else %}
-              <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
-            {% endif %}
-            <span class="pager-mini-status">{{ sidebar["albums"]["pagination"]["page"] }}/{{ sidebar["albums"]["pagination"]["total_pages"] }}</span>
-            {% if sidebar["albums"]["pagination"]["next_url"] %}
-              <a class="pager-link" href="{{ sidebar['albums']['pagination']['next_url'] }}" data-ajax-page="viewport">{{ t["page_next"] }}</a>
-            {% else %}
-              <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
-            {% endif %}
-          </div>
+        <div class="pager-row pager-row-side">
+          {% if sidebar["albums"]["pagination"]["prev_url"] %}
+          <a class="pager-link" href="{{ sidebar['albums']['pagination']['prev_url'] }}" data-ajax-page="viewport">{{
+            t["page_prev"] }}</a>
+          {% else %}
+          <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
+          {% endif %}
+          <span class="pager-mini-status">{{ sidebar["albums"]["pagination"]["page"] }}/{{
+            sidebar["albums"]["pagination"]["total_pages"] }}</span>
+          {% if sidebar["albums"]["pagination"]["next_url"] %}
+          <a class="pager-link" href="{{ sidebar['albums']['pagination']['next_url'] }}" data-ajax-page="viewport">{{
+            t["page_next"] }}</a>
+          {% else %}
+          <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
+          {% endif %}
+        </div>
         {% endif %}
       </section>
       <section class="side-panel" id="uploaders-panel">
         <div class="panel-title">{{ t["uploaders"] }}</div>
         <div class="side-list">
           {% for item in sidebar["uploaders"]["items"] %}
-            <a class="side-link" href="/?uploader={{ item['uploader'] | urlencode }}&lang={{ lang }}">{{ item["uploader"] }} <span>{{ item["tracks"] }}</span></a>
+          <a class="side-link" href="/?uploader={{ item['uploader'] | urlencode }}&lang={{ lang }}">{{ item["uploader"]
+            }} <span>{{ item["tracks"] }}</span></a>
           {% endfor %}
         </div>
         {% if sidebar["uploaders"]["pagination"]["total_pages"] > 1 %}
-          <div class="pager-row pager-row-side">
-            {% if sidebar["uploaders"]["pagination"]["prev_url"] %}
-              <a class="pager-link" href="{{ sidebar['uploaders']['pagination']['prev_url'] }}" data-ajax-page="viewport">{{ t["page_prev"] }}</a>
-            {% else %}
-              <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
-            {% endif %}
-            <span class="pager-mini-status">{{ sidebar["uploaders"]["pagination"]["page"] }}/{{ sidebar["uploaders"]["pagination"]["total_pages"] }}</span>
-            {% if sidebar["uploaders"]["pagination"]["next_url"] %}
-              <a class="pager-link" href="{{ sidebar['uploaders']['pagination']['next_url'] }}" data-ajax-page="viewport">{{ t["page_next"] }}</a>
-            {% else %}
-              <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
-            {% endif %}
-          </div>
+        <div class="pager-row pager-row-side">
+          {% if sidebar["uploaders"]["pagination"]["prev_url"] %}
+          <a class="pager-link" href="{{ sidebar['uploaders']['pagination']['prev_url'] }}" data-ajax-page="viewport">{{
+            t["page_prev"] }}</a>
+          {% else %}
+          <span class="pager-link is-disabled">{{ t["page_prev"] }}</span>
+          {% endif %}
+          <span class="pager-mini-status">{{ sidebar["uploaders"]["pagination"]["page"] }}/{{
+            sidebar["uploaders"]["pagination"]["total_pages"] }}</span>
+          {% if sidebar["uploaders"]["pagination"]["next_url"] %}
+          <a class="pager-link" href="{{ sidebar['uploaders']['pagination']['next_url'] }}" data-ajax-page="viewport">{{
+            t["page_next"] }}</a>
+          {% else %}
+          <span class="pager-link is-disabled">{{ t["page_next"] }}</span>
+          {% endif %}
+        </div>
         {% endif %}
       </section>
     </aside>
 
-      <section class="table-wrap" id="tracks-panel">
+    <section class="table-wrap" id="tracks-panel">
       <div class="table-toolbar">
         <div class="selection-tools">
-          <button type="button" class="mini-button" data-download-selected data-base-label="{{ t['download_many_flac'] }}" data-download-limit-message="{{ t['download_many_limit'] }}">{{ t["download_many_flac"] }}</button>
-          <button type="button" class="mini-button" data-download-zip data-base-label="{{ t['download_zip'] }}" data-download-limit-message="{{ t['download_zip_limit'] }}">{{ t["download_zip"] }}</button>
+          <button type="button" class="mini-button" data-download-selected
+            data-base-label="{{ t['download_many_flac'] }}"
+            data-download-limit-message="{{ t['download_many_limit'] }}">{{ t["download_many_flac"] }}</button>
+          <button type="button" class="mini-button" data-download-zip data-base-label="{{ t['download_zip'] }}"
+            data-download-limit-message="{{ t['download_zip_limit'] }}">{{ t["download_zip"] }}</button>
         </div>
       </div>
       <div class="table-scroll">
@@ -415,163 +443,172 @@
           </thead>
           <tbody>
             {% for track in tracks %}
-              <tr>
-                <td class="select-col" data-label="{{ t['select'] }}">
-                  <input type="checkbox" value="{{ track['id'] }}" data-track-select>
-                </td>
-                <td class="cover-cell" data-label="{{ t['cover'] }}">
-                  <img src="{{ track['cover_url'] }}" alt="{{ track['album'] }}">
-                </td>
-                <td data-label="{{ t['track'] }}">
-                  <strong class="track-main">{{ "%02d"|format(track["track_number"]) }}. {{ track["title"] }}</strong>
-                  <span class="subline">{{ t["disc"] }} {{ track["disc_number"] }} | {{ track["genre"] or t["genre_missing"] }}</span>
-                </td>
-                <td data-label="{{ t['artist'] }}"><a href="/?artist={{ track['artist'] | urlencode }}&lang={{ lang }}">{{ track["artist"] }}</a></td>
-                <td data-label="{{ t['album'] }}"><a href="/?artist={{ track['artist'] | urlencode }}&album={{ track['album'] | urlencode }}&lang={{ lang }}">{{ track["album"] }}</a></td>
-                <td class="uploader-credit-cell" data-label="{{ t['uploader'] }}" title="{{ track['uploader_full'] }}">{{ track["uploader_display"] }}</td>
-                <td data-label="{{ t['year'] }}">{{ track["year"] }}</td>
-                <td data-label="{{ t['length'] }}">{{ track["duration_label"] }}</td>
-                <td data-label="{{ t['size'] }}">{{ track["size_label"] }}</td>
-                <td data-label="{{ t['spec'] }}">{{ track["specs_label"] }}</td>
-                <td class="track-actions-cell" data-label="{{ t['grab'] }}">
-                  <div class="track-actions">
-                    {% if current_user %}
-                      <a href="/download/{{ track['id'] }}" class="download-link">{{ t["download_label"] }}</a>
-                      <button
-                        type="button"
-                        class="download-link preview-button"
-                        data-open-player
-                        data-player-src="/preview/{{ track['id'] }}"
-                        data-player-heading="{{ track['artist'] }} / {{ track['album'] }} / {{ track['title'] }}"
-                        data-player-meta="{{ track['specs_label'] }} | {{ track['size_label'] }} | {{ track['duration_label'] }}"
-                      >{{ t["preview_label"] }}</button>
-                    {% else %}
-                      <a href="/download/{{ track['id'] }}" class="download-link is-locked" data-requires-auth>{{ t["download_label"] }}</a>
-                      <button type="button" class="download-link preview-button is-locked" data-requires-auth>{{ t["preview_label"] }}</button>
-                    {% endif %}
-                    <button
-                      type="button"
-                      class="download-link spectrum-button"
-                      data-open-spectrum
-                      data-spectrum-src="/spectrum/{{ track['id'] }}.png"
-                      data-spectrum-heading="{{ track['artist'] }} / {{ track['album'] }} / {{ track['title'] }}"
-                      data-spectrum-meta="{{ track['specs_label'] }} | {{ track['size_label'] }} | {{ track['duration_label'] }}"
-                      data-spectrum-loading="{{ t['spectrum_loading'] }}"
-                      data-spectrum-error="{{ t['spectrum_error'] }}"
-                    >{{ t["spectrum"] }}</button>
-                  </div>
-                </td>
-              </tr>
+            <tr>
+              <td class="select-col" data-label="{{ t['select'] }}">
+                <input type="checkbox" value="{{ track['id'] }}" data-track-select>
+              </td>
+              <td class="cover-cell" data-label="{{ t['cover'] }}">
+                <img src="{{ track['cover_url'] }}" alt="{{ track['album'] }}">
+              </td>
+              <td data-label="{{ t['track'] }}">
+                <strong class="track-main">{{ "%02d"|format(track["track_number"]) }}. {{ track["title"] }}</strong>
+                <span class="subline">{{ t["disc"] }} {{ track["disc_number"] }} | {{ track["genre"] or
+                  t["genre_missing"] }}</span>
+              </td>
+              <td data-label="{{ t['artist'] }}"><a href="/?artist={{ track['artist'] | urlencode }}&lang={{ lang }}">{{
+                  track["artist"] }}</a></td>
+              <td data-label="{{ t['album'] }}"><a
+                  href="/?artist={{ track['artist'] | urlencode }}&album={{ track['album'] | urlencode }}&lang={{ lang }}">{{
+                  track["album"] }}</a></td>
+              <td class="uploader-credit-cell" data-label="{{ t['uploader'] }}" title="{{ track['uploader_full'] }}">{{
+                track["uploader_display"] }}</td>
+              <td data-label="{{ t['year'] }}">{{ track["year"] }}</td>
+              <td data-label="{{ t['length'] }}">{{ track["duration_label"] }}</td>
+              <td data-label="{{ t['size'] }}">{{ track["size_label"] }}</td>
+              <td data-label="{{ t['spec'] }}">{{ track["specs_label"] }}</td>
+              <td class="track-actions-cell" data-label="{{ t['grab'] }}">
+                <div class="track-actions">
+                  {% if current_user %}
+                  <a href="/download/{{ track['id'] }}" class="download-link">{{ t["download_label"] }}</a>
+                  <button type="button" class="download-link preview-button" data-open-player
+                    data-player-src="/preview/{{ track['id'] }}"
+                    data-player-heading="{{ track['artist'] }} / {{ track['album'] }} / {{ track['title'] }}"
+                    data-player-meta="{{ track['specs_label'] }} | {{ track['size_label'] }} | {{ track['duration_label'] }}">{{
+                    t["preview_label"] }}</button>
+                  {% else %}
+                  <a href="/download/{{ track['id'] }}" class="download-link is-locked" data-requires-auth>{{
+                    t["download_label"] }}</a>
+                  <button type="button" class="download-link preview-button is-locked" data-requires-auth>{{
+                    t["preview_label"] }}</button>
+                  {% endif %}
+                  <button type="button" class="download-link spectrum-button" data-open-spectrum
+                    data-spectrum-src="/spectrum/{{ track['id'] }}.png"
+                    data-spectrum-heading="{{ track['artist'] }} / {{ track['album'] }} / {{ track['title'] }}"
+                    data-spectrum-meta="{{ track['specs_label'] }} | {{ track['size_label'] }} | {{ track['duration_label'] }}"
+                    data-spectrum-loading="{{ t['spectrum_loading'] }}"
+                    data-spectrum-error="{{ t['spectrum_error'] }}">{{ t["spectrum"] }}</button>
+                </div>
+              </td>
+            </tr>
             {% else %}
-              <tr>
-                <td colspan="11" class="empty-row">{{ t["empty_index"] }}</td>
-              </tr>
+            <tr>
+              <td colspan="11" class="empty-row">{{ t["empty_index"] }}</td>
+            </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
       {% if track_pagination["total_pages"] > 1 %}
-        <div class="pager-row pager-row-tracks">
-          {% if track_pagination["prev_url"] %}
-            <a class="pager-button pager-button-track" href="{{ track_pagination['prev_url'] }}" data-ajax-page="viewport">{{ t["page_prev"] }}</a>
+      <div class="pager-row pager-row-tracks">
+        {% if track_pagination["prev_url"] %}
+        <a class="pager-button pager-button-track" href="{{ track_pagination['prev_url'] }}"
+          data-ajax-page="viewport">{{ t["page_prev"] }}</a>
+        {% else %}
+        <span class="pager-button pager-button-track is-disabled">{{ t["page_prev"] }}</span>
+        {% endif %}
+        <div class="track-pager-pages">
+          {% for page_num in track_pagination["page_links"] %}
+          {% if page_num == "..." %}
+          <span class="pager-ellipsis">...</span>
+          {% elif page_num == track_pagination["page"] %}
+          <span class="pager-page is-active">{{ page_num }}</span>
           {% else %}
-            <span class="pager-button pager-button-track is-disabled">{{ t["page_prev"] }}</span>
+          <a class="pager-page"
+            href="{{ track_pagination['jump_url_template'] | replace('__PAGE__', page_num|string) }}#tracks-panel"
+            data-ajax-page="viewport">{{ page_num }}</a>
           {% endif %}
-          <div class="track-pager-pages">
-            {% for page_num in track_pagination["page_links"] %}
-              {% if page_num == "..." %}
-                <span class="pager-ellipsis">...</span>
-              {% elif page_num == track_pagination["page"] %}
-                <span class="pager-page is-active">{{ page_num }}</span>
-              {% else %}
-                <a class="pager-page" href="{{ track_pagination['jump_url_template'] | replace('__PAGE__', page_num|string) }}#tracks-panel" data-ajax-page="viewport">{{ page_num }}</a>
-              {% endif %}
-            {% endfor %}
-          </div>
-          {% if track_pagination["next_url"] %}
-            <a class="pager-button pager-button-track" href="{{ track_pagination['next_url'] }}" data-ajax-page="viewport">{{ t["page_next"] }}</a>
-          {% else %}
-            <span class="pager-button pager-button-track is-disabled">{{ t["page_next"] }}</span>
-          {% endif %}
-          <form class="track-page-jump" method="get" action="/" data-viewport-jump>
-            <input type="hidden" name="lang" value="{{ lang }}">
-            <input type="hidden" name="q" value="{{ filters['q'] }}">
-            <input type="hidden" name="uploader" value="{{ filters['uploader'] }}">
-            <input type="hidden" name="artist" value="{{ filters['artist'] }}">
-            <input type="hidden" name="album" value="{{ filters['album'] }}">
-            <input type="hidden" name="sort" value="{{ filters['sort'] }}">
-            <input type="number" min="1" max="{{ track_pagination['total_pages'] }}" name="tracks_page" value="{{ track_pagination['page'] }}">
-            <button type="submit">{{ t["jump"] }}</button>
-          </form>
+          {% endfor %}
         </div>
+        {% if track_pagination["next_url"] %}
+        <a class="pager-button pager-button-track" href="{{ track_pagination['next_url'] }}"
+          data-ajax-page="viewport">{{ t["page_next"] }}</a>
+        {% else %}
+        <span class="pager-button pager-button-track is-disabled">{{ t["page_next"] }}</span>
+        {% endif %}
+        <form class="track-page-jump" method="get" action="/" data-viewport-jump>
+          <input type="hidden" name="lang" value="{{ lang }}">
+          <input type="hidden" name="q" value="{{ filters['q'] }}">
+          <input type="hidden" name="uploader" value="{{ filters['uploader'] }}">
+          <input type="hidden" name="artist" value="{{ filters['artist'] }}">
+          <input type="hidden" name="album" value="{{ filters['album'] }}">
+          <input type="hidden" name="sort" value="{{ filters['sort'] }}">
+          <input type="number" min="1" max="{{ track_pagination['total_pages'] }}" name="tracks_page"
+            value="{{ track_pagination['page'] }}">
+          <button type="submit">{{ t["jump"] }}</button>
+        </form>
+      </div>
       {% endif %}
       <div class="mobile-track-list">
         {% for track in tracks %}
-          <article class="mobile-track-card">
-            <div class="mobile-track-head">
-              <label class="mobile-track-check">
-                <input type="checkbox" value="{{ track['id'] }}" data-track-select>
-                <span>{{ t["select"] }}</span>
-              </label>
-              <span class="mobile-track-spec">{{ track["specs_label"] }}</span>
-            </div>
-            <div class="mobile-track-body">
-              <img class="mobile-track-cover" src="{{ track['cover_url'] }}" alt="{{ track['album'] }}">
-              <div class="mobile-track-copy">
-                <strong class="mobile-track-title">{{ "%02d"|format(track["track_number"]) }}. {{ track["title"] }}</strong>
-                <div class="mobile-track-line">
-                  <a href="/?artist={{ track['artist'] | urlencode }}&lang={{ lang }}">{{ track["artist"] }}</a>
-                  <span>/</span>
-                  <a href="/?artist={{ track['artist'] | urlencode }}&album={{ track['album'] | urlencode }}&lang={{ lang }}">{{ track["album"] }}</a>
-                </div>
-                <div class="mobile-track-line mobile-track-uploader" title="{{ track['uploader_full'] }}">{{ track["uploader_display"] }}</div>
-                <div class="mobile-track-badges">
-                  <span class="mobile-meta-pill">{{ track["year"] }}</span>
-                  <span class="mobile-meta-pill">{{ track["duration_label"] }}</span>
-                  <span class="mobile-meta-pill">{{ track["size_label"] }}</span>
-                </div>
+        <article class="mobile-track-card">
+          <div class="mobile-track-head">
+            <label class="mobile-track-check">
+              <input type="checkbox" value="{{ track['id'] }}" data-track-select>
+              <span>{{ t["select"] }}</span>
+            </label>
+            <span class="mobile-track-spec">{{ track["specs_label"] }}</span>
+          </div>
+          <div class="mobile-track-body">
+            <img class="mobile-track-cover" src="{{ track['cover_url'] }}" alt="{{ track['album'] }}">
+            <div class="mobile-track-copy">
+              <strong class="mobile-track-title">{{ "%02d"|format(track["track_number"]) }}. {{ track["title"]
+                }}</strong>
+              <div class="mobile-track-line">
+                <a href="/?artist={{ track['artist'] | urlencode }}&lang={{ lang }}">{{ track["artist"] }}</a>
+                <span>/</span>
+                <a
+                  href="/?artist={{ track['artist'] | urlencode }}&album={{ track['album'] | urlencode }}&lang={{ lang }}">{{
+                  track["album"] }}</a>
+              </div>
+              <div class="mobile-track-line mobile-track-uploader" title="{{ track['uploader_full'] }}">{{
+                track["uploader_display"] }}</div>
+              <div class="mobile-track-badges">
+                <span class="mobile-meta-pill">{{ track["year"] }}</span>
+                <span class="mobile-meta-pill">{{ track["duration_label"] }}</span>
+                <span class="mobile-meta-pill">{{ track["size_label"] }}</span>
               </div>
             </div>
-            <div class="mobile-track-actions">
-              {% if current_user %}
-                <a href="/download/{{ track['id'] }}" class="download-link mobile-action-link">{{ t["download_label"] }}</a>
-                <button
-                  type="button"
-                  class="download-link preview-button mobile-action-link"
-                  data-open-player
-                  data-player-src="/preview/{{ track['id'] }}"
-                  data-player-heading="{{ track['artist'] }} / {{ track['album'] }} / {{ track['title'] }}"
-                  data-player-meta="{{ track['specs_label'] }} | {{ track['size_label'] }} | {{ track['duration_label'] }}"
-                >{{ t["preview_label"] }}</button>
-              {% else %}
-                <a href="/download/{{ track['id'] }}" class="download-link mobile-action-link is-locked" data-requires-auth>{{ t["download_label"] }}</a>
-                <button type="button" class="download-link preview-button mobile-action-link is-locked" data-requires-auth>{{ t["preview_label"] }}</button>
-              {% endif %}
-              <button
-                type="button"
-                class="download-link spectrum-button mobile-action-link"
-                data-open-spectrum
-                data-spectrum-src="/spectrum/{{ track['id'] }}.png"
-                data-spectrum-heading="{{ track['artist'] }} / {{ track['album'] }} / {{ track['title'] }}"
-                data-spectrum-meta="{{ track['specs_label'] }} | {{ track['size_label'] }} | {{ track['duration_label'] }}"
-                data-spectrum-loading="{{ t['spectrum_loading'] }}"
-                data-spectrum-error="{{ t['spectrum_error'] }}"
-              >{{ t["spectrum"] }}</button>
-            </div>
-          </article>
+          </div>
+          <div class="mobile-track-actions">
+            {% if current_user %}
+            <a href="/download/{{ track['id'] }}" class="download-link mobile-action-link">{{ t["download_label"] }}</a>
+            <button type="button" class="download-link preview-button mobile-action-link" data-open-player
+              data-player-src="/preview/{{ track['id'] }}"
+              data-player-heading="{{ track['artist'] }} / {{ track['album'] }} / {{ track['title'] }}"
+              data-player-meta="{{ track['specs_label'] }} | {{ track['size_label'] }} | {{ track['duration_label'] }}">{{
+              t["preview_label"] }}</button>
+            {% else %}
+            <a href="/download/{{ track['id'] }}" class="download-link mobile-action-link is-locked"
+              data-requires-auth>{{ t["download_label"] }}</a>
+            <button type="button" class="download-link preview-button mobile-action-link is-locked"
+              data-requires-auth>{{ t["preview_label"] }}</button>
+            {% endif %}
+            <button type="button" class="download-link spectrum-button mobile-action-link" data-open-spectrum
+              data-spectrum-src="/spectrum/{{ track['id'] }}.png"
+              data-spectrum-heading="{{ track['artist'] }} / {{ track['album'] }} / {{ track['title'] }}"
+              data-spectrum-meta="{{ track['specs_label'] }} | {{ track['size_label'] }} | {{ track['duration_label'] }}"
+              data-spectrum-loading="{{ t['spectrum_loading'] }}" data-spectrum-error="{{ t['spectrum_error'] }}">{{
+              t["spectrum"] }}</button>
+          </div>
+        </article>
         {% else %}
-          <div class="empty-row">{{ t["empty_index"] }}</div>
+        <div class="empty-row">{{ t["empty_index"] }}</div>
         {% endfor %}
       </div>
       <div class="scroll-hint">{{ track_pagination["total_items"] }} items</div>
-      </section>
-    </main>
-  </div>
+    </section>
+  </main>
+</div>
 
-  <div class="mobile-selection-dock" data-mobile-selection-dock>
-    <span class="mobile-selection-count" data-mobile-selection-count>0</span>
-    <button type="button" class="mini-button mobile-dock-button mobile-dock-quickfind" data-open-quickfind>{{ t["nav_quickfind"] }}</button>
-    <button type="button" class="mini-button mobile-dock-button" data-download-selected data-base-label="{{ t['download_many_flac'] }}" data-download-limit-message="{{ t['download_many_limit'] }}">{{ t["download_many_flac"] }}</button>
-    <button type="button" class="mini-button mobile-dock-button" data-download-zip data-base-label="{{ t['download_zip'] }}" data-download-limit-message="{{ t['download_zip_limit'] }}">{{ t["download_zip"] }}</button>
-  </div>
+<div class="mobile-selection-dock" data-mobile-selection-dock>
+  <span class="mobile-selection-count" data-mobile-selection-count>0</span>
+  <button type="button" class="mini-button mobile-dock-button mobile-dock-quickfind" data-open-quickfind>{{
+    t["nav_quickfind"] }}</button>
+  <button type="button" class="mini-button mobile-dock-button" data-download-selected
+    data-base-label="{{ t['download_many_flac'] }}" data-download-limit-message="{{ t['download_many_limit'] }}">{{
+    t["download_many_flac"] }}</button>
+  <button type="button" class="mini-button mobile-dock-button" data-download-zip
+    data-base-label="{{ t['download_zip'] }}" data-download-limit-message="{{ t['download_zip_limit'] }}">{{
+    t["download_zip"] }}</button>
+</div>
 {% endblock %}
