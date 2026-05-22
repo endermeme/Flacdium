@@ -468,6 +468,7 @@ button {
   border: 1px solid #a2afbf;
   background: #f7f9fc;
   padding: 6px;
+  min-width: 0;
 }
 
 .notice-item-head {
@@ -475,6 +476,9 @@ button {
   align-items: center;
   gap: 6px;
   color: #1f3d5a;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .notice-pin {
@@ -495,6 +499,8 @@ button {
 .notice-item-content {
   color: #233f5c;
   overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .notice-item-content img {
@@ -1343,6 +1349,7 @@ select:disabled {
 .chat-bubble-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chat-send-form {

@@ -4,8 +4,6 @@ services:
     container_name: flacdium
     env_file:
       - .env
-    environment:
-      FLACDIUM_TAILSCALE_PUBLIC_BASE_URL: ${FLACDIUM_TAILSCALE_PUBLIC_BASE_URL:-}
     init: true
     ports:
       - "8000:8000"
@@ -19,23 +17,4 @@ services:
       - /tmp:size=256m,mode=1777
     security_opt:
       - no-new-privileges:true
-    restart: unless-stopped
-    depends_on:
-      - tailscale
-
-  tailscale:
-    image: tailscale/tailscale:stable
-    container_name: flacdium-tailscale
-    hostname: flacdium-ts
-    environment:
-      TS_AUTHKEY: ${TS_AUTHKEY}
-      TS_STATE_DIR: /var/lib/tailscale
-      TS_EXTRA_ARGS: --accept-routes
-    volumes:
-      - ${FLACDIUM_STATE_DIR:-/var/lib/flacdium}/tailscale:/var/lib/tailscale
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-    devices:
-      - /dev/net/tun:/dev/net/tun
     restart: unless-stopped
