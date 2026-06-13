@@ -42,6 +42,7 @@
         <a href="/admin?lang={{ lang }}&tab=tracks" class="admin-tab {% if active_tab == 'tracks' %}is-active{% endif %}">{{ t["admin_tab_tracks"] }}</a>
         <a href="/admin?lang={{ lang }}&tab=reviews" class="admin-tab {% if active_tab == 'reviews' %}is-active{% endif %}">{{ t["admin_tab_reviews"] }}</a>
         <a href="/admin?lang={{ lang }}&tab=notices" class="admin-tab {% if active_tab == 'notices' %}is-active{% endif %}">{{ t["admin_tab_notices"] }}</a>
+        <a href="/admin?lang={{ lang }}&tab=transfer" class="admin-tab {% if active_tab == 'transfer' %}is-active{% endif %}">{{ t["admin_tab_transfer"] }}</a>
       </div>
 
       {% if notice %}
@@ -575,6 +576,39 @@
                     {% endfor %}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        {% endif %}
+
+        {% if active_tab == "transfer" %}
+          <div class="admin-block admin-section admin-section-tab">
+            <div class="admin-section-head">
+              <strong>{{ t["admin_transfer_title"] }}</strong>
+            </div>
+            <div class="admin-section-body">
+              <div class="filter-panel admin-filter-panel">
+                <div class="support-note">{{ t["admin_transfer_export_hint"] }}</div>
+                <form method="post" action="/admin/transfer/export">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="tab" value="transfer">
+                  <button type="submit">{{ t["admin_transfer_export"] }}</button>
+                </form>
+              </div>
+
+              <div class="filter-panel admin-filter-panel" style="margin-top: 8px;">
+                <div class="support-note">{{ t["admin_transfer_import_hint"] }}</div>
+                <form method="post" action="/admin/transfer/import" enctype="multipart/form-data">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="tab" value="transfer">
+                  <label>
+                    <span>{{ t["admin_transfer_file"] }}</span>
+                    <input type="file" name="transfer_file" accept=".zip" required>
+                  </label>
+                  <div class="filter-actions" style="margin-top: 8px;">
+                    <button type="submit">{{ t["admin_transfer_import"] }}</button>
+                  </div>
+                </form>
               </div>
             </div>
           </div>

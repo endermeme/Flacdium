@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+import threading
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
@@ -18,10 +19,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, quote, urlencode, urlparse
 from urllib.request import urlopen
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -37,6 +38,7 @@ REVIEW_DIR = TMP_DIR / "review"
 SPECTRUM_DIR = TMP_DIR / "spectrum"
 BATCH_DIR = TMP_DIR / "upload_batches"
 UPLOAD_STATUS_DIR = TMP_DIR / "upload_status"
+FLASH_DIR = TMP_DIR / "flash"
 NOTICE_ASSETS_DIR = DATA_DIR / "notice_assets"
 DB_PATH = DATA_DIR / "flacdium.sqlite3"
 STATIC_ASSET_VERSION = str(
@@ -58,6 +60,7 @@ for folder in (
     SPECTRUM_DIR,
     BATCH_DIR,
     UPLOAD_STATUS_DIR,
+    FLASH_DIR,
     NOTICE_ASSETS_DIR,
 ):
     folder.mkdir(parents=True, exist_ok=True)
@@ -175,6 +178,7 @@ LOGIN_LOGS_PER_PAGE = 40
 ADMIN_LOGS_MAX_ROWS = env_int("FLACDIUM_ADMIN_LOGS_MAX_ROWS", 1000)
 MAX_BUNDLE_TRACKS = 100
 USER_MAX_BUNDLE_TRACKS = env_int("FLACDIUM_USER_MAX_BUNDLE_TRACKS", 50)
+ADMIN_TRANSFER_MAX_BYTES = env_int("FLACDIUM_ADMIN_TRANSFER_MAX_BYTES", 64 * 1024 * 1024 * 1024)
 SORTS = {
     "newest": "uploaded_at DESC",
     "oldest": "uploaded_at ASC",
@@ -185,6 +189,7 @@ SORTS = {
     "title": "title COLLATE NOCASE ASC, artist COLLATE NOCASE ASC",
 }
 ROBOTS_POLICY = "noindex, nofollow, noarchive, nosnippet, noimageindex"
+STATE_TRANSFER_LOCK = threading.Lock()
 
 TEXT: dict[str, dict[str, str]] = {
     "vi": {
@@ -388,6 +393,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_tab_tracks": "nhạc",
         "admin_tab_reviews": "duyệt",
         "admin_tab_notices": "thông báo",
+        "admin_tab_transfer": "nhập xuất",
         "admin_tab_ngrok": "tailscale",
         "admin_select": "chọn",
         "admin_select_all": "chọn trang",
@@ -464,6 +470,15 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_notice_saved": "đã lưu thông báo",
         "admin_notice_deleted": "đã xóa thông báo",
         "admin_notice_image_upload": "tải ảnh",
+        "admin_transfer_title": "chuyển kho",
+        "admin_transfer_export": "xuất full kho",
+        "admin_transfer_import": "nhập gói chuyển kho",
+        "admin_transfer_file": "file zip",
+        "admin_transfer_export_hint": "xuất sqlite + nhạc + bìa + review thành 1 gói zip",
+        "admin_transfer_import_hint": "nhập gói zip đã xuất từ flacdium khác; thao tác này sẽ thay toàn bộ kho hiện tại",
+        "admin_transfer_busy": "đang có tác vụ nhập/xuất khác, chờ xong rồi thử lại",
+        "admin_transfer_done": "đã nhập gói chuyển kho",
+        "admin_transfer_invalid": "gói chuyển kho không hợp lệ",
         "possible_duplicate_note": "các case trùng theo metadata đang bị chặn nhẹ để tránh up lặp",
         "storage_note": "dedupe hiện chặn file hash trùng và slot album trùng; tối ưu mạnh hơn nên bàn thêm",
         "system_panel": "hệ thống",
@@ -683,6 +698,7 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_tab_tracks": "tracks",
         "admin_tab_reviews": "review",
         "admin_tab_notices": "alerts",
+        "admin_tab_transfer": "transfer",
         "admin_tab_ngrok": "tailscale",
         "admin_select": "select",
         "admin_select_all": "select page",
@@ -759,6 +775,15 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_notice_saved": "alert saved",
         "admin_notice_deleted": "alert deleted",
         "admin_notice_image_upload": "image",
+        "admin_transfer_title": "library transfer",
+        "admin_transfer_export": "export full library",
+        "admin_transfer_import": "import transfer bundle",
+        "admin_transfer_file": "zip file",
+        "admin_transfer_export_hint": "export sqlite + tracks + covers + review files as one zip bundle",
+        "admin_transfer_import_hint": "import a zip bundle exported from another flacdium; this replaces the current library",
+        "admin_transfer_busy": "another import/export job is running, wait and try again",
+        "admin_transfer_done": "transfer bundle imported",
+        "admin_transfer_invalid": "invalid transfer bundle",
         "possible_duplicate_note": "metadata duplicates are blocked softly to avoid repeated uploads",
         "storage_note": "dedupe currently blocks exact hashes and duplicate album slots; heavier optimization needs policy discussion",
         "system_panel": "system",
@@ -818,6 +843,7 @@ def init_storage() -> None:
         SPECTRUM_DIR,
         BATCH_DIR,
         UPLOAD_STATUS_DIR,
+        FLASH_DIR,
     ):
         folder.mkdir(parents=True, exist_ok=True)
 
@@ -1687,6 +1713,80 @@ def set_lang_cookie(request: Request, response: HTMLResponse | RedirectResponse,
         secure=request_is_secure(request),
         samesite="lax",
     )
+
+
+def set_flash_cookie(request: Request, response: HTMLResponse | RedirectResponse, payload: dict[str, Any]) -> None:
+    token = secrets.token_urlsafe(24)
+    (FLASH_DIR / f"{token}.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    response.set_cookie(
+        "flacdium_flash",
+        sign_value(token, "flash"),
+        httponly=True,
+        samesite="lax",
+        max_age=300,
+        secure=request_is_secure(request),
+    )
+
+
+def clear_flash_cookie(response: HTMLResponse | RedirectResponse) -> None:
+    response.delete_cookie("flacdium_flash")
+
+
+def consume_flash_payload(request: Request, page_kind: str) -> dict[str, Any] | None:
+    token = unsign_value(request.cookies.get("flacdium_flash"), "flash")
+    if not token:
+        return None
+    flash_path = FLASH_DIR / f"{token}.json"
+    if not flash_path.exists():
+        return None
+    try:
+        payload = json.loads(flash_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = None
+    flash_path.unlink(missing_ok=True)
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("page") != page_kind:
+        return None
+    return payload
+
+
+def redirect_home_with_flash(
+    request: Request,
+    *,
+    notice: str,
+    lang: str,
+    accepted: list[str] | None = None,
+    rejected: list[str] | None = None,
+    status_code: int = 303,
+) -> RedirectResponse:
+    response = RedirectResponse(f"/?lang={lang}", status_code=status_code)
+    set_lang_cookie(request, response, lang)
+    set_flash_cookie(
+        request,
+        response,
+        {
+            "page": "home",
+            "notice": notice,
+            "accepted": accepted or [],
+            "rejected": rejected or [],
+        },
+    )
+    return response
+
+
+def redirect_admin_with_flash(
+    request: Request,
+    *,
+    lang: str,
+    tab: str,
+    notice: str,
+    status_code: int = 303,
+) -> RedirectResponse:
+    response = RedirectResponse(admin_redirect_target(lang, tab), status_code=status_code)
+    set_lang_cookie(request, response, lang)
+    set_flash_cookie(request, response, {"page": "admin", "notice": notice})
+    return response
 
 
 def verify_csrf(request: Request, submitted_token: str) -> None:
@@ -2822,6 +2922,17 @@ def write_upload_status(batch_id: str, payload: dict[str, Any]) -> dict[str, Any
     return base_payload
 
 
+def clear_upload_status(batch_id: str) -> None:
+    try:
+        upload_status_path(batch_id).unlink(missing_ok=True)
+    except IngestError:
+        return
+
+
+def delete_path_quietly(path: Path) -> None:
+    path.unlink(missing_ok=True)
+
+
 def upload_status_urls(batch_id: str, lang: str) -> dict[str, str]:
     safe_batch_id = normalize_batch_id(batch_id)
     return {
@@ -2836,6 +2947,90 @@ def is_xhr_request(request: Request) -> bool:
 
 def is_admin_user(user: sqlite3.Row | dict[str, Any] | None) -> bool:
     return bool(user and user["is_admin"])
+
+
+def add_directory_to_zip(bundle: ZipFile, source_dir: Path, arc_prefix: str) -> None:
+    if not source_dir.exists():
+        return
+    for file_path in sorted(source_dir.rglob("*")):
+        if file_path.is_file():
+            arcname = f"{arc_prefix}/{file_path.relative_to(source_dir).as_posix()}"
+            bundle.write(file_path, arcname)
+
+
+def build_admin_transfer_bundle() -> tuple[Path, str]:
+    timestamp = now_utc().strftime("%Y%m%d-%H%M%S")
+    bundle_path = Path(tempfile.NamedTemporaryFile(delete=False, dir=TMP_DIR, suffix=".zip").name)
+    manifest = {
+        "format": "flacdium-transfer",
+        "version": 1,
+        "created_at": now_utc().isoformat(),
+        "includes": ["data", "library", "covers", "tmp/review"],
+    }
+    with ZipFile(bundle_path, "w", compression=ZIP_STORED, allowZip64=True) as bundle:
+        bundle.writestr(
+            "flacdium-transfer/manifest.json",
+            json.dumps(manifest, ensure_ascii=False, separators=(",", ":")),
+        )
+        add_directory_to_zip(bundle, DATA_DIR, "flacdium-transfer/data")
+        add_directory_to_zip(bundle, LIBRARY_DIR, "flacdium-transfer/library")
+        add_directory_to_zip(bundle, COVERS_DIR, "flacdium-transfer/covers")
+        add_directory_to_zip(bundle, REVIEW_DIR, "flacdium-transfer/tmp/review")
+    return bundle_path, f"flacdium-transfer-{timestamp}.zip"
+
+
+def apply_admin_transfer_bundle(bundle_file: Path) -> None:
+    extract_root = Path(tempfile.mkdtemp(dir=TMP_DIR, prefix="transfer-import-"))
+    backups: list[tuple[Path, Path]] = []
+    try:
+        with ZipFile(bundle_file) as bundle:
+            total_unpacked = sum(int(info.file_size) for info in bundle.infolist())
+            if total_unpacked > ADMIN_TRANSFER_MAX_BYTES:
+                raise HTTPException(status_code=413, detail="transfer bundle too large")
+            bundle.extractall(extract_root)
+
+        bundle_root = extract_root / "flacdium-transfer"
+        if not (bundle_root / "manifest.json").exists():
+            raise HTTPException(status_code=400, detail="invalid transfer bundle")
+        if not (bundle_root / "data" / "flacdium.sqlite3").exists():
+            raise HTTPException(status_code=400, detail="missing sqlite database in transfer bundle")
+        for required in ("library", "covers"):
+            if not (bundle_root / required).exists():
+                raise HTTPException(status_code=400, detail=f"missing {required} in transfer bundle")
+
+        replacements = [
+            (DATA_DIR, bundle_root / "data"),
+            (LIBRARY_DIR, bundle_root / "library"),
+            (COVERS_DIR, bundle_root / "covers"),
+        ]
+        review_source = bundle_root / "tmp" / "review"
+        replacements.append((REVIEW_DIR, review_source if review_source.exists() else None))
+
+        for target_dir, incoming_dir in replacements:
+            backup_dir = TMP_DIR / f"transfer-backup-{target_dir.name}-{secrets.token_hex(6)}"
+            if target_dir.exists():
+                shutil.move(str(target_dir), str(backup_dir))
+                backups.append((target_dir, backup_dir))
+            if incoming_dir is None:
+                target_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                target_dir.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(incoming_dir), str(target_dir))
+
+        init_storage()
+        migrate_admin_uploader_alias()
+    except Exception:
+        for target_dir, backup_dir in reversed(backups):
+            if target_dir.exists():
+                shutil.rmtree(target_dir, ignore_errors=True)
+            if backup_dir.exists():
+                shutil.move(str(backup_dir), str(target_dir))
+        raise
+    finally:
+        shutil.rmtree(extract_root, ignore_errors=True)
+        bundle_file.unlink(missing_ok=True)
+        for _target_dir, backup_dir in backups:
+            shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 def user_upload_file_limit(user: sqlite3.Row | dict[str, Any] | None) -> int | None:
@@ -3414,7 +3609,13 @@ def build_pagination(
     }
 
 
-def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dict[str, dict[str, Any]]:
+def fetch_sidebar_lists(
+    connection: sqlite3.Connection,
+    request: Request,
+    artists_per_page: int,
+    albums_per_page: int,
+    uploaders_per_page: int,
+) -> dict[str, dict[str, Any]]:
     artists_page = parse_page(request.query_params.get("artists_page"))
     albums_page = parse_page(request.query_params.get("albums_page"))
     uploaders_page = parse_page(request.query_params.get("uploaders_page"))
@@ -3430,7 +3631,7 @@ def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dic
         "artists_page",
         artists_page,
         artists_total,
-        ARTISTS_PAGE_SIZE,
+        artists_per_page,
         "#artists-panel",
     )
     artists = connection.execute(
@@ -3442,8 +3643,8 @@ def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dic
         LIMIT ? OFFSET ?
         """,
         (
-            ARTISTS_PAGE_SIZE,
-            (artists_pagination["page"] - 1) * ARTISTS_PAGE_SIZE,
+            artists_per_page,
+            (artists_pagination["page"] - 1) * artists_per_page,
         ),
     ).fetchall()
 
@@ -3458,7 +3659,7 @@ def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dic
         "albums_page",
         albums_page,
         albums_total,
-        ALBUMS_PAGE_SIZE,
+        albums_per_page,
         "#albums-panel",
     )
     albums = connection.execute(
@@ -3470,8 +3671,8 @@ def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dic
         LIMIT ? OFFSET ?
         """,
         (
-            ALBUMS_PAGE_SIZE,
-            (albums_pagination["page"] - 1) * ALBUMS_PAGE_SIZE,
+            albums_per_page,
+            (albums_pagination["page"] - 1) * albums_per_page,
         ),
     ).fetchall()
 
@@ -3487,7 +3688,7 @@ def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dic
             "uploaders_page",
             uploaders_page,
             uploaders_total,
-            UPLOADERS_PAGE_SIZE,
+            uploaders_per_page,
             "#uploaders-panel",
         )
         uploaders = connection.execute(
@@ -3499,8 +3700,8 @@ def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dic
             LIMIT ? OFFSET ?
             """,
             (
-                UPLOADERS_PAGE_SIZE,
-                (uploaders_pagination["page"] - 1) * UPLOADERS_PAGE_SIZE,
+                uploaders_per_page,
+                (uploaders_pagination["page"] - 1) * uploaders_per_page,
             ),
         ).fetchall()
     else:
@@ -3515,7 +3716,7 @@ def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dic
             "uploaders_page",
             uploaders_page,
             uploaders_total,
-            UPLOADERS_PAGE_SIZE,
+            uploaders_per_page,
             "#uploaders-panel",
         )
         uploaders = connection.execute(
@@ -3527,8 +3728,8 @@ def fetch_sidebar_lists(connection: sqlite3.Connection, request: Request) -> dic
             LIMIT ? OFFSET ?
             """,
             (
-                UPLOADERS_PAGE_SIZE,
-                (uploaders_pagination["page"] - 1) * UPLOADERS_PAGE_SIZE,
+                uploaders_per_page,
+                (uploaders_pagination["page"] - 1) * uploaders_per_page,
             ),
         ).fetchall()
 
@@ -3573,6 +3774,7 @@ def fetch_tracks(
     connection: sqlite3.Connection,
     request: Request,
     lang: str,
+    tracks_per_page: int,
 ) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, Any]]:
     q = (request.query_params.get("q") or "").strip()
     q_norm = normalize_search_value(q)
@@ -3621,12 +3823,12 @@ def fetch_tracks(
         "tracks_page",
         tracks_page,
         total_items,
-        TRACKS_PER_PAGE,
+        tracks_per_page,
         "#tracks-panel",
     )
     rows = connection.execute(
         f"SELECT * {sql} ORDER BY {order_by} LIMIT ? OFFSET ?",
-        (*params, TRACKS_PER_PAGE, (pagination["page"] - 1) * TRACKS_PER_PAGE),
+        (*params, tracks_per_page, (pagination["page"] - 1) * tracks_per_page),
     ).fetchall()
     tracks: list[dict[str, Any]] = []
     uploader_map = build_uploader_map(connection, [int(row["id"]) for row in rows])
@@ -4319,7 +4521,7 @@ def fetch_chat_messages(connection: sqlite3.Connection, user: sqlite3.Row, peer_
 
 
 def normalize_admin_tab(raw_value: str | None) -> str:
-    return raw_value if raw_value in {"accounts", "sessions", "tracks", "reviews", "ngrok", "notices"} else "accounts"
+    return raw_value if raw_value in {"accounts", "sessions", "tracks", "reviews", "notices", "transfer"} else "accounts"
 
 
 def admin_anchor(tab: str) -> str:
@@ -4332,6 +4534,8 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
     lang = get_lang(request)
     t = text_for(lang)
     csrf_token = get_or_create_csrf_token(request)
+    flash_payload = consume_flash_payload(request, "admin")
+    notice_value = notice or str((flash_payload or {}).get("notice") or "")
     active_tab = normalize_admin_tab(request.query_params.get("tab"))
     with get_db() as connection:
         summary = fetch_admin_summary(connection)
@@ -4364,7 +4568,7 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
         "lang": lang,
         "t": t,
         "current_user": admin_user,
-        "notice": notice,
+        "notice": notice_value,
         "active_tab": active_tab,
         "summary": summary,
         "users": users,
@@ -4393,6 +4597,8 @@ def render_admin(request: Request, notice: str = "", status_code: int = 200) -> 
     response = templates.TemplateResponse(request, "admin.html", context, status_code=status_code)
     set_lang_cookie(request, response, lang)
     set_csrf_cookie(request, response, csrf_token)
+    if flash_payload is not None:
+        clear_flash_cookie(response)
     response.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
@@ -4413,23 +4619,27 @@ def render_home(
     user = current_user(request)
     maybe_record_session_seen(request, user)
     csrf_token = get_or_create_csrf_token(request)
+    flash_payload = consume_flash_payload(request, "home")
+    notice_value = notice or str((flash_payload or {}).get("notice") or "")
+    accepted_value = accepted if accepted is not None else list((flash_payload or {}).get("accepted") or [])
+    rejected_value = rejected if rejected is not None else list((flash_payload or {}).get("rejected") or [])
     with get_db() as connection:
-        tracks, filters, track_pagination = fetch_tracks(connection, request, lang)
+        tracks, filters, track_pagination = fetch_tracks(connection, request, lang, TRACKS_PER_PAGE)
         notice_unread_count = fetch_notice_unread_count(connection, user)
         chat_unread_count = fetch_chat_unread_count(connection, user)
         context = {
             "request": request,
             "lang": lang,
             "t": t,
-            "notice": notice,
-            "rejected": rejected or [],
-            "accepted": accepted or [],
+            "notice": notice_value,
+            "rejected": rejected_value,
+            "accepted": accepted_value,
             "tracks": tracks,
             "track_pagination": track_pagination,
             "filters": filters,
             "summary": fetch_summary(connection),
             "notices": fetch_public_notices(connection),
-            "sidebar": fetch_sidebar_lists(connection, request),
+            "sidebar": fetch_sidebar_lists(connection, request, ARTISTS_PAGE_SIZE, ALBUMS_PAGE_SIZE, UPLOADERS_PAGE_SIZE),
             "quick_links": fetch_quick_links(connection, request),
             "sort_keys": list(SORTS.keys()),
             "sort_labels": {key: t[f"sort_{key}"] for key in SORTS},
@@ -4457,6 +4667,8 @@ def render_home(
         )
         set_lang_cookie(request, response, lang)
         set_csrf_cookie(request, response, csrf_token)
+        if flash_payload is not None:
+            clear_flash_cookie(response)
         return response
 
 
@@ -4473,6 +4685,8 @@ def render_chat(
         raise HTTPException(status_code=403, detail=t["upload_login_required"])
     maybe_record_session_seen(request, user)
     csrf_token = get_or_create_csrf_token(request)
+    flash_payload = consume_flash_payload(request, "chat")
+    notice_value = notice or str((flash_payload or {}).get("notice") or "")
     peer_raw = (peer_override or request.query_params.get("peer") or "").strip()
     with get_db() as connection:
         notices = fetch_public_notices(connection)
@@ -4486,7 +4700,7 @@ def render_chat(
             "request": request,
             "lang": lang,
             "t": t,
-            "notice": notice,
+            "notice": notice_value,
             "current_user": user,
             "auth_open": False,
             "auth_mode": "login",
@@ -4509,6 +4723,8 @@ def render_chat(
         response = templates.TemplateResponse(request, "chat.html", context, status_code=status_code)
         set_lang_cookie(request, response, lang)
         set_csrf_cookie(request, response, csrf_token)
+        if flash_payload is not None:
+            clear_flash_cookie(response)
         return response
 
 
@@ -4941,7 +5157,7 @@ async def upload(
         return render_home(request, notice=t["nothing_uploaded"], status_code=400)
 
     notice = t["accepted_summary"].format(accepted=len(accepted), rejected=len(rejected))
-    return render_home(request, notice=notice, accepted=accepted, rejected=rejected)
+    return redirect_home_with_flash(request, notice=notice, lang=lang, accepted=accepted, rejected=rejected)
 
 
 @app.get("/upload")
@@ -5144,12 +5360,15 @@ async def upload_result(request: Request, batch_id: str) -> HTMLResponse:
         return render_home(request, notice=t["nothing_uploaded"], status_code=404)
     if status.get("uploader") not in {"", user["username"]} and not user["is_admin"]:
         return render_home(request, notice=t["upload_login_required"], status_code=403)
-    return render_home(
+    accepted = list(status.get("accepted") or [])
+    rejected = list(status.get("rejected") or [])
+    clear_upload_status(batch_id)
+    return redirect_home_with_flash(
         request,
         notice=str(status.get("notice") or ""),
-        accepted=list(status.get("accepted") or []),
-        rejected=list(status.get("rejected") or []),
-        status_code=int(status.get("status_code") or 200),
+        lang=lang,
+        accepted=accepted,
+        rejected=rejected,
     )
 
 
@@ -5670,6 +5889,68 @@ async def admin_remove_ngrok_link(
     )
     set_lang_cookie(request, response, lang)
     return response
+
+
+@app.post("/admin/transfer/export")
+async def admin_export_transfer_bundle(
+    request: Request,
+    csrf_token: str = Form(...),
+    tab: str = Form("transfer"),
+) -> Response:
+    lang = get_lang(request)
+    verify_csrf(request, csrf_token)
+    require_admin(request)
+    if not STATE_TRANSFER_LOCK.acquire(blocking=False):
+        return redirect_admin_with_flash(request, lang=lang, tab=tab, notice=text_for(lang)["admin_transfer_busy"])
+    try:
+        bundle_path, bundle_name = await asyncio.to_thread(build_admin_transfer_bundle)
+    finally:
+        STATE_TRANSFER_LOCK.release()
+    return FileResponse(
+        bundle_path,
+        media_type="application/zip",
+        filename=bundle_name,
+        background=BackgroundTask(delete_path_quietly, bundle_path),
+    )
+
+
+@app.post("/admin/transfer/import")
+async def admin_import_transfer_bundle(
+    request: Request,
+    csrf_token: str = Form(...),
+    tab: str = Form("transfer"),
+    transfer_file: UploadFile | None = File(None),
+) -> RedirectResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    verify_csrf(request, csrf_token)
+    require_admin(request)
+    try:
+        enforce_body_size_limit(request, ADMIN_TRANSFER_MAX_BYTES)
+    except HTTPException as exc:
+        return redirect_admin_with_flash(request, lang=lang, tab=tab, notice=str(exc.detail), status_code=303)
+    if transfer_file is None or not str(transfer_file.filename or "").strip().lower().endswith(".zip"):
+        return redirect_admin_with_flash(request, lang=lang, tab=tab, notice=t["admin_transfer_invalid"])
+    if not STATE_TRANSFER_LOCK.acquire(blocking=False):
+        return redirect_admin_with_flash(request, lang=lang, tab=tab, notice=t["admin_transfer_busy"], status_code=303)
+    bundle_path = Path(tempfile.NamedTemporaryFile(delete=False, dir=TMP_DIR, suffix=".zip").name)
+    try:
+        with bundle_path.open("wb") as handle:
+            while True:
+                chunk = await transfer_file.read(1024 * 1024)
+                if not chunk:
+                    break
+                handle.write(chunk)
+        await transfer_file.close()
+        await asyncio.to_thread(apply_admin_transfer_bundle, bundle_path)
+    except HTTPException as exc:
+        return redirect_admin_with_flash(request, lang=lang, tab=tab, notice=str(exc.detail), status_code=303)
+    except Exception:
+        return redirect_admin_with_flash(request, lang=lang, tab=tab, notice=t["admin_transfer_invalid"], status_code=303)
+    finally:
+        STATE_TRANSFER_LOCK.release()
+        bundle_path.unlink(missing_ok=True)
+    return redirect_admin_with_flash(request, lang=lang, tab=tab, notice=t["admin_transfer_done"])
 
 
 @app.post("/admin/notices/upload-image")
