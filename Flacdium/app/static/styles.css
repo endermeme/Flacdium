@@ -1729,7 +1729,16 @@ select:disabled {
 
 .table-scroll {
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
+}
+
+/* Selected track rows get a flat highlight (no shadow/rounding — keep the terminal look). */
+.library-table tbody tr.is-selected {
+  background: #eef3f8;
+}
+
+.mobile-track-card.is-selected {
+  border-left: 3px solid #4c6078;
 }
 
 .scroll-hint {
@@ -1996,7 +2005,7 @@ select:disabled {
 
   .sidebar {
     max-height: 200px;
-    overflow: hidden;
+    overflow: auto;
   }
 
   .quick-items-tracks,
@@ -2148,14 +2157,15 @@ select:disabled {
 
   .sidebar {
     display: grid;
-    order: 1;
+    order: 2;
     gap: 6px;
     overflow: visible;
     max-height: none;
   }
 
+  /* Surface the track list first on phones; the browse sidebar sits below it. */
   .page-home .table-wrap {
-    order: 2;
+    order: 1;
   }
 
   .stats-strip {
@@ -2283,7 +2293,7 @@ select:disabled {
 
   .page-home .library-table tbody tr {
     display: grid;
-    grid-template-columns: 22px 20px minmax(0, 1fr);
+    grid-template-columns: 28px 20px minmax(0, 1fr);
     grid-template-areas:
       "select cover track"
       "select cover artist"
@@ -2294,6 +2304,19 @@ select:disabled {
     padding: 6px;
     border: 1px solid #b8c4d3;
     background: #fff;
+    cursor: pointer;
+  }
+
+  /* Chosen rows: flat left-border accent in palette, no shadow/rounding. */
+  .page-home .library-table tbody tr.is-selected {
+    border-left: 3px solid #4c6078;
+    background: #eef3f8;
+  }
+
+  /* Enlarge the checkbox hit area; the whole row is also tappable via JS. */
+  .page-home .library-table tbody td:nth-child(1) input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
   }
 
   .page-home .library-table tbody td {
@@ -2433,6 +2456,7 @@ select:disabled {
     z-index: 28;
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 4px;
     padding: 5px 6px calc(5px + env(safe-area-inset-bottom));
     border: 1px solid #95a5b9;
@@ -2448,12 +2472,23 @@ select:disabled {
     font-size: 10px;
   }
 
-  .mobile-dock-quickfind {
+  .mobile-selection-count {
     flex: 0 0 auto;
   }
 
+  /* Toggles (select-page, quickfind) wrap onto their own row; downloads share a row. */
+  .mobile-dock-quickfind {
+    flex: 1 1 auto;
+  }
+
   .mobile-dock-button:not(.mobile-dock-quickfind) {
-    flex: 1 1 0;
+    flex: 1 1 45%;
+  }
+
+  /* Zip is the primary mobile grab action — give it a heavier edge. */
+  .mobile-dock-zip {
+    font-weight: 700;
+    border-color: #4c6078;
   }
 }
 

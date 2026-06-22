@@ -190,6 +190,10 @@ SORTS = {
 }
 ROBOTS_POLICY = "noindex, nofollow, noarchive, nosnippet, noimageindex"
 STATE_TRANSFER_LOCK = threading.Lock()
+# Set while a library import is swapping the data/library/covers dirs. The HTTP middleware
+# rejects other requests with 503 during this window so no live request reads a half-moved
+# tree or an sqlite file whose inode is being replaced.
+IMPORT_IN_PROGRESS = threading.Event()
 
 TEXT: dict[str, dict[str, str]] = {
     "vi": {
@@ -395,6 +399,8 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_tab_notices": "thông báo",
         "admin_tab_transfer": "nhập xuất",
         "admin_tab_ngrok": "tailscale",
+        "select_page": "chọn cả trang",
+        "deselect_page": "bỏ chọn",
         "admin_select": "chọn",
         "admin_select_all": "chọn trang",
         "admin_music_file": "bài nhạc",
@@ -700,6 +706,8 @@ TEXT: dict[str, dict[str, str]] = {
         "admin_tab_notices": "alerts",
         "admin_tab_transfer": "transfer",
         "admin_tab_ngrok": "tailscale",
+        "select_page": "select page",
+        "deselect_page": "clear page",
         "admin_select": "select",
         "admin_select_all": "select page",
         "admin_music_file": "track",
@@ -826,6 +834,12 @@ templates.env.globals["asset_version"] = STATIC_ASSET_VERSION
 
 @app.middleware("http")
 async def apply_site_guard(request: Request, call_next: Any) -> Any:
+    # While a library import is swapping state dirs, refuse other requests so none reads a
+    # half-moved tree. Static assets stay reachable so the 503 page can still render.
+    if IMPORT_IN_PROGRESS.is_set() and not request.url.path.startswith("/static/"):
+        retry = PlainTextResponse(text_for(get_lang(request))["admin_transfer_busy"], status_code=503)
+        retry.headers["Retry-After"] = "5"
+        return retry
     response = await call_next(request)
     response.headers.setdefault("X-Robots-Tag", ROBOTS_POLICY)
     response.headers.setdefault("Referrer-Policy", "no-referrer")
@@ -1715,7 +1729,21 @@ def set_lang_cookie(request: Request, response: HTMLResponse | RedirectResponse,
     )
 
 
+FLASH_MAX_AGE_SECONDS = 600
+
+
+def cleanup_flash_dir() -> None:
+    cutoff = now_utc().timestamp() - FLASH_MAX_AGE_SECONDS
+    for path in FLASH_DIR.glob("*.json"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink(missing_ok=True)
+        except OSError:
+            continue
+
+
 def set_flash_cookie(request: Request, response: HTMLResponse | RedirectResponse, payload: dict[str, Any]) -> None:
+    cleanup_flash_dir()
     token = secrets.token_urlsafe(24)
     (FLASH_DIR / f"{token}.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     response.set_cookie(
@@ -1743,11 +1771,14 @@ def consume_flash_payload(request: Request, page_kind: str) -> dict[str, Any] | 
         payload = json.loads(flash_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         payload = None
-    flash_path.unlink(missing_ok=True)
+    # Only consume (delete) the flash when it belongs to this page; otherwise leave it so
+    # the page it was meant for can still show it (e.g. an admin tab loading before home).
     if not isinstance(payload, dict):
+        flash_path.unlink(missing_ok=True)
         return None
     if payload.get("page") != page_kind:
         return None
+    flash_path.unlink(missing_ok=True)
     return payload
 
 
@@ -2981,12 +3012,20 @@ def build_admin_transfer_bundle() -> tuple[Path, str]:
 
 def apply_admin_transfer_bundle(bundle_file: Path) -> None:
     extract_root = Path(tempfile.mkdtemp(dir=TMP_DIR, prefix="transfer-import-"))
-    backups: list[tuple[Path, Path]] = []
+    token = secrets.token_hex(6)
+    staged: list[tuple[Path, Path]] = []   # (target_dir, staged_source beside target)
+    backups: list[tuple[Path, Path]] = []  # (target_dir, backup beside target)
     try:
         with ZipFile(bundle_file) as bundle:
             total_unpacked = sum(int(info.file_size) for info in bundle.infolist())
             if total_unpacked > ADMIN_TRANSFER_MAX_BYTES:
                 raise HTTPException(status_code=413, detail="transfer bundle too large")
+            # Guard against zip-slip: every member must resolve inside extract_root.
+            extract_root_resolved = extract_root.resolve()
+            for info in bundle.infolist():
+                dest = (extract_root / info.filename).resolve()
+                if dest != extract_root_resolved and extract_root_resolved not in dest.parents:
+                    raise HTTPException(status_code=400, detail="invalid transfer bundle")
             bundle.extractall(extract_root)
 
         bundle_root = extract_root / "flacdium-transfer"
@@ -2998,37 +3037,53 @@ def apply_admin_transfer_bundle(bundle_file: Path) -> None:
             if not (bundle_root / required).exists():
                 raise HTTPException(status_code=400, detail=f"missing {required} in transfer bundle")
 
+        review_source = bundle_root / "tmp" / "review"
         replacements = [
             (DATA_DIR, bundle_root / "data"),
             (LIBRARY_DIR, bundle_root / "library"),
             (COVERS_DIR, bundle_root / "covers"),
+            (REVIEW_DIR, review_source if review_source.exists() else None),
         ]
-        review_source = bundle_root / "tmp" / "review"
-        replacements.append((REVIEW_DIR, review_source if review_source.exists() else None))
 
+        # Stage each incoming tree NEXT TO its target so the later swap is a same-filesystem
+        # rename. Any cross-device copy (mounted state dirs in Docker) happens here, before
+        # the fast swap window — not while live data is half-moved.
         for target_dir, incoming_dir in replacements:
-            backup_dir = TMP_DIR / f"transfer-backup-{target_dir.name}-{secrets.token_hex(6)}"
-            if target_dir.exists():
-                shutil.move(str(target_dir), str(backup_dir))
-                backups.append((target_dir, backup_dir))
+            stage_dir = target_dir.parent / f".transfer-stage-{target_dir.name}-{token}"
+            shutil.rmtree(stage_dir, ignore_errors=True)
+            target_dir.parent.mkdir(parents=True, exist_ok=True)
             if incoming_dir is None:
-                target_dir.mkdir(parents=True, exist_ok=True)
+                stage_dir.mkdir(parents=True, exist_ok=True)
             else:
-                target_dir.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(incoming_dir), str(target_dir))
+                shutil.move(str(incoming_dir), str(stage_dir))
+            staged.append((target_dir, stage_dir))
+
+        # Swap window: only fast same-filesystem renames. Move the current tree aside, then
+        # slot the staged tree in. A crash here leaves either old or new in place per dir,
+        # and the except-block reverts every swapped dir back to its backup.
+        for target_dir, stage_dir in staged:
+            backup_dir = target_dir.parent / f".transfer-backup-{target_dir.name}-{token}"
+            shutil.rmtree(backup_dir, ignore_errors=True)
+            if target_dir.exists():
+                os.rename(str(target_dir), str(backup_dir))
+                backups.append((target_dir, backup_dir))
+            os.rename(str(stage_dir), str(target_dir))
 
         init_storage()
         migrate_admin_uploader_alias()
     except Exception:
+        # Revert every backed-up target to its original (covers partial swap and a failure
+        # in init_storage/migrate after a full swap). Dirs never moved aside stay untouched.
         for target_dir, backup_dir in reversed(backups):
-            if target_dir.exists():
-                shutil.rmtree(target_dir, ignore_errors=True)
             if backup_dir.exists():
-                shutil.move(str(backup_dir), str(target_dir))
+                shutil.rmtree(target_dir, ignore_errors=True)
+                os.rename(str(backup_dir), str(target_dir))
         raise
     finally:
         shutil.rmtree(extract_root, ignore_errors=True)
         bundle_file.unlink(missing_ok=True)
+        for _target_dir, stage_dir in staged:
+            shutil.rmtree(stage_dir, ignore_errors=True)
         for _target_dir, backup_dir in backups:
             shutil.rmtree(backup_dir, ignore_errors=True)
 
@@ -5935,14 +5990,24 @@ async def admin_import_transfer_bundle(
         return redirect_admin_with_flash(request, lang=lang, tab=tab, notice=t["admin_transfer_busy"], status_code=303)
     bundle_path = Path(tempfile.NamedTemporaryFile(delete=False, dir=TMP_DIR, suffix=".zip").name)
     try:
+        # Enforce the size cap on the stream itself: enforce_body_size_limit only trusts the
+        # Content-Length header, which a chunked upload omits.
+        written = 0
         with bundle_path.open("wb") as handle:
             while True:
                 chunk = await transfer_file.read(1024 * 1024)
                 if not chunk:
                     break
+                written += len(chunk)
+                if written > ADMIN_TRANSFER_MAX_BYTES:
+                    raise HTTPException(status_code=413, detail=t["request_too_large"])
                 handle.write(chunk)
         await transfer_file.close()
-        await asyncio.to_thread(apply_admin_transfer_bundle, bundle_path)
+        IMPORT_IN_PROGRESS.set()
+        try:
+            await asyncio.to_thread(apply_admin_transfer_bundle, bundle_path)
+        finally:
+            IMPORT_IN_PROGRESS.clear()
     except HTTPException as exc:
         return redirect_admin_with_flash(request, lang=lang, tab=tab, notice=str(exc.detail), status_code=303)
     except Exception:

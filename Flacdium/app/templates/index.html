@@ -417,6 +417,8 @@
     <section class="table-wrap" id="tracks-panel">
       <div class="table-toolbar">
         <div class="selection-tools">
+          <button type="button" class="mini-button select-page-toggle" data-select-page
+            data-select-label="{{ t['select_page'] }}" data-deselect-label="{{ t['deselect_page'] }}">{{ t["select_page"] }}</button>
           <button type="button" class="mini-button" data-download-selected
             data-base-label="{{ t['download_many_flac'] }}"
             data-download-limit-message="{{ t['download_many_limit'] }}">{{ t["download_many_flac"] }}</button>
@@ -602,12 +604,14 @@
 
 <div class="mobile-selection-dock" data-mobile-selection-dock>
   <span class="mobile-selection-count" data-mobile-selection-count>0</span>
+  <button type="button" class="mini-button mobile-dock-button mobile-dock-quickfind" data-select-page
+    data-select-label="{{ t['select_page'] }}" data-deselect-label="{{ t['deselect_page'] }}">{{ t["select_page"] }}</button>
   <button type="button" class="mini-button mobile-dock-button mobile-dock-quickfind" data-open-quickfind>{{
     t["nav_quickfind"] }}</button>
   <button type="button" class="mini-button mobile-dock-button" data-download-selected
     data-base-label="{{ t['download_many_flac'] }}" data-download-limit-message="{{ t['download_many_limit'] }}">{{
     t["download_many_flac"] }}</button>
-  <button type="button" class="mini-button mobile-dock-button" data-download-zip
+  <button type="button" class="mini-button mobile-dock-button mobile-dock-zip" data-download-zip
     data-base-label="{{ t['download_zip'] }}" data-download-limit-message="{{ t['download_zip_limit'] }}">{{
     t["download_zip"] }}</button>
 </div>

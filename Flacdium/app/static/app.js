@@ -38,6 +38,12 @@ const userBundleTrackLimit = parseNullableInt(body.dataset.userBundleTrackLimit)
 const userUploadFileLimit = parseNullableInt(body.dataset.userUploadFileLimit);
 const userUploadZipLimit = parseNullableInt(body.dataset.userUploadZipLimit);
 
+// Track selection lives here, not only in the DOM. AJAX paging replaces the whole
+// viewport (see replaceViewportFromHtml), which would otherwise discard every checked
+// box; keeping the chosen ids in a Set lets selection survive page/tab switches and lets
+// bundle/zip downloads span pages. Resets on a full reload, which is acceptable.
+const selectedIds = new Set();
+
 function currentTrackSelectBoxes() {
   return Array.from(document.querySelectorAll("[data-track-select]"));
 }
@@ -241,14 +247,50 @@ function generateBatchId() {
 }
 
 function selectedTrackIds() {
-  return Array.from(new Set(currentTrackSelectBoxes().filter((box) => box.checked).map((box) => box.value)));
+  return Array.from(selectedIds);
+}
+
+function setTrackSelected(trackId, checked) {
+  if (checked) {
+    selectedIds.add(trackId);
+  } else {
+    selectedIds.delete(trackId);
+  }
 }
 
 function syncTrackSelection(trackId, checked, sourceBox) {
+  setTrackSelected(trackId, checked);
   currentTrackSelectBoxes().forEach((box) => {
     if (box !== sourceBox && box.value === trackId) {
       box.checked = checked;
     }
+  });
+  markSelectedCards(document);
+}
+
+// Re-apply the selection Set onto freshly rendered checkboxes. Called after the viewport
+// is swapped by AJAX paging so selections made on other pages stay visibly checked.
+function applySelectionToDom(root = document) {
+  root.querySelectorAll("[data-track-select]").forEach((box) => {
+    box.checked = selectedIds.has(box.value);
+  });
+  markSelectedCards(root);
+}
+
+// Seed the Set from any server-rendered checked boxes (defensive: server does not
+// pre-check today, but this keeps the Set authoritative if that ever changes).
+function seedSelectionFromDom(root = document) {
+  root.querySelectorAll("[data-track-select]").forEach((box) => {
+    if (box.checked) selectedIds.add(box.value);
+  });
+}
+
+// Mark the row/card that holds each track checkbox so chosen tracks are visually obvious
+// (on mobile the library table reflows each <tr> into a card via CSS grid-areas).
+function markSelectedCards(root = document) {
+  root.querySelectorAll("[data-track-select]").forEach((box) => {
+    const container = box.closest(".mobile-track-card, tr");
+    if (container) container.classList.toggle("is-selected", selectedIds.has(box.value));
   });
 }
 
@@ -270,6 +312,20 @@ function syncSelectionButtons() {
   if (mobileSelectionCount) {
     mobileSelectionCount.textContent = String(selectedCount);
   }
+  syncSelectPageToggle();
+}
+
+// Flip the "select page / deselect page" toggle label to match whether every rendered
+// track box is already checked.
+function syncSelectPageToggle() {
+  const boxes = currentTrackSelectBoxes();
+  const allChecked = boxes.length > 0 && boxes.every((box) => box.checked);
+  document.querySelectorAll("[data-select-page]").forEach((toggle) => {
+    const selectLabel = toggle.dataset.selectLabel || toggle.textContent.trim();
+    const deselectLabel = toggle.dataset.deselectLabel || selectLabel;
+    toggle.textContent = allChecked ? deselectLabel : selectLabel;
+    toggle.disabled = boxes.length === 0;
+  });
 }
 
 function createRequest(url, formData, batchId, onProgress, onDone, onFail) {
@@ -344,6 +400,7 @@ function replaceViewportFromHtml(html, href) {
   if (!nextViewport || !currentViewport) return false;
   currentViewport.replaceWith(nextViewport);
   primeSelectionLabels(nextViewport);
+  applySelectionToDom(nextViewport);
   syncSelectionButtons();
   window.history.replaceState({}, "", href);
   return true;
@@ -565,6 +622,36 @@ document.addEventListener("change", (event) => {
   syncSelectionButtons();
 });
 
+// On mobile the library table reflows into cards; tapping a non-interactive part of a
+// track row toggles its selection (a far larger touch target than the small checkbox).
+// Scoped to mobile so desktop row clicks keep their normal behaviour.
+document.addEventListener("click", (event) => {
+  if (!window.matchMedia("(max-width: 760px)").matches) return;
+  if (event.target.closest("a, button, input, label, summary")) return;
+  const row = event.target.closest(".library-table tbody tr");
+  if (!row) return;
+  const box = row.querySelector("[data-track-select]");
+  if (!box) return;
+  box.checked = !box.checked;
+  syncTrackSelection(box.value, box.checked, box);
+  syncSelectionButtons();
+});
+
+// "Select page" toggle in the mobile list: check/uncheck every rendered track box.
+document.addEventListener("click", (event) => {
+  const toggle = event.target.closest("[data-select-page]");
+  if (!toggle) return;
+  event.preventDefault();
+  const boxes = currentTrackSelectBoxes();
+  const allChecked = boxes.length > 0 && boxes.every((box) => box.checked);
+  boxes.forEach((box) => {
+    box.checked = !allChecked;
+    setTrackSelected(box.value, box.checked);
+  });
+  markSelectedCards(document);
+  syncSelectionButtons();
+});
+
 let quickfindSearchDebounce = 0;
 document.addEventListener("input", (event) => {
   const input = event.target.closest("[data-quickfind-live-search] input[type='text']");
@@ -610,6 +697,8 @@ document.addEventListener("click", (event) => {
 });
 
 primeSelectionLabels();
+seedSelectionFromDom();
+markSelectedCards(document);
 syncSelectionButtons();
 
 document.querySelectorAll("[data-bulk-form]").forEach((form) => {
