@@ -22,6 +22,7 @@ from urllib.request import urlopen
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
@@ -118,6 +119,19 @@ ADMIN_USERNAME = (os.getenv("FLACDIUM_ADMIN_USERNAME") or "").strip()
 ADMIN_PASSWORD = os.getenv("FLACDIUM_ADMIN_PASSWORD", "")
 ADMIN_UPLOADER_ALIAS = "admin"
 TRUST_PROXY = env_bool("FLACDIUM_TRUST_PROXY", False)
+# Origin(s) of the standalone monochrome streaming web allowed to call the JSON API
+# cross-origin. Comma-separated. Defaults cover local vite dev/preview ports.
+MONOCHROME_ORIGINS = [
+    origin.strip().rstrip("/")
+    for origin in (
+        os.getenv("MONOCHROME_ORIGIN")
+        or "http://localhost:4173,http://localhost:5173"
+    ).split(",")
+    if origin.strip()
+]
+# API bearer tokens (used by the cross-origin monochrome web) expire after this many
+# seconds. Defaults to 30 days, matching the session cookie lifetime.
+API_TOKEN_TTL_SECONDS = env_int("FLACDIUM_TOKEN_TTL_SECONDS", 60 * 60 * 24 * 30)
 MAX_REQUEST_BODY_BYTES = env_int("FLACDIUM_MAX_REQUEST_BODY_BYTES", 1024 * 1024 * 1024)
 MAX_UPLOAD_FILES = env_int("FLACDIUM_MAX_UPLOAD_FILES", 64)
 USER_MAX_UPLOAD_FILES = env_int("FLACDIUM_USER_MAX_UPLOAD_FILES", 50)
@@ -825,6 +839,18 @@ class SecurityConfigError(RuntimeError):
 
 
 app = FastAPI(title="Flacdium")
+# Allow the standalone monochrome streaming web (different origin) to read the JSON API
+# and stream FLAC. Token auth is used cross-origin, so cookies are NOT shared (no credentials).
+if "*" in MONOCHROME_ORIGINS:
+    raise SecurityConfigError("MONOCHROME_ORIGIN must list explicit origins, not '*'.")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=MONOCHROME_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+    expose_headers=["Accept-Ranges", "Content-Range", "Content-Length"],
+)
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 app.mount("/covers", StaticFiles(directory=str(COVERS_DIR)), name="covers")
 app.mount("/notice-assets", StaticFiles(directory=str(NOTICE_ASSETS_DIR)), name="notice_assets")
@@ -1054,6 +1080,17 @@ def init_db() -> None:
                 read_at TEXT NOT NULL DEFAULT '',
                 FOREIGN KEY(sender_id) REFERENCES users(id),
                 FOREIGN KEY(recipient_id) REFERENCES users(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_collections (
+                username TEXT NOT NULL,
+                name TEXT NOT NULL,
+                data TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (username, name)
             )
             """
         )
@@ -1858,6 +1895,55 @@ def url_with_lang(request: Request, **updates: str | None) -> str:
 
 def current_user(request: Request) -> sqlite3.Row | None:
     username = unsign_username(request.cookies.get("flacdium_session"))
+    if not username:
+        return None
+    with get_db() as connection:
+        return connection.execute(
+            "SELECT * FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+
+
+def extract_bearer_token(request: Request) -> str | None:
+    # API token = the same HMAC-signed username string used for the session cookie.
+    # Accept it from the Authorization header (preferred) or a `token` query param
+    # (needed for <audio>/download links that cannot set headers).
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("bearer "):
+        token = header[7:].strip()
+        if token:
+            return token
+    query_token = (request.query_params.get("token") or "").strip()
+    return query_token or None
+
+
+def issue_api_token(username: str) -> str:
+    # API token carries an issued-at timestamp so it can expire (unlike the bare
+    # session-signed username). Distinct purpose keeps it separate from the cookie.
+    payload = f"{int(now_utc().timestamp())}:{username}"
+    return sign_value(payload, "apitoken")
+
+
+def unsign_api_token(raw_value: str | None) -> str | None:
+    payload = unsign_value(raw_value, "apitoken")
+    if not payload or ":" not in payload:
+        return None
+    issued_raw, username = payload.split(":", 1)
+    if not issued_raw.isdigit() or not username:
+        return None
+    age = int(now_utc().timestamp()) - int(issued_raw)
+    if age < 0 or age > API_TOKEN_TTL_SECONDS:
+        return None
+    return username
+
+
+def current_user_any(request: Request) -> sqlite3.Row | None:
+    # Resolve a user from the session cookie first (same-origin Flacdium UI), then
+    # fall back to an API bearer/query token (cross-origin monochrome web).
+    user = current_user(request)
+    if user is not None:
+        return user
+    username = unsign_api_token(extract_bearer_token(request))
     if not username:
         return None
     with get_db() as connection:
@@ -5427,10 +5513,231 @@ async def upload_result(request: Request, batch_id: str) -> HTMLResponse:
     )
 
 
+# ---------------------------------------------------------------------------
+# JSON API for the standalone monochrome streaming web (shared music library).
+# Read-only library access + token auth. Streaming itself reuses /preview.
+# ---------------------------------------------------------------------------
+
+# Whitelisted track fields returned to the client. Internal columns (stored_path,
+# blob_path, *_norm, hashes, fingerprint) are deliberately NOT exposed.
+API_TRACK_FIELDS = (
+    "id", "title", "artist", "album", "album_artist", "genre",
+    "year", "release_date", "track_number", "disc_number",
+    "duration_seconds", "sample_rate", "bit_depth", "channels", "file_size",
+    "duration_label", "specs_label", "size_label", "uploaded_label",
+    "cover_url", "uploader_display", "uploader_full",
+)
+
+
+def serialize_api_track(track: dict[str, Any]) -> dict[str, Any]:
+    data = {field: track.get(field) for field in API_TRACK_FIELDS}
+    # Direct native-FLAC stream URL (Range-capable). Client appends ?token=… when private.
+    data["stream_url"] = f"/preview/{track['id']}"
+    data["download_url"] = f"/download/{track['id']}"
+    return data
+
+
+@app.get("/api/tracks")
+async def api_tracks(request: Request) -> JSONResponse:
+    # Library access requires a signed-in, active account (Flacdium is login-only).
+    api_user = current_user_any(request)
+    if api_user is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not api_user["is_active"]:
+        raise HTTPException(status_code=403, detail=text_for(get_lang(request))["user_disabled"])
+    # Allow the client to request a larger page (e.g. search needs more than the
+    # Jinja UI's default). Clamped to keep responses bounded.
+    per_page = TRACKS_PER_PAGE
+    raw_per_page = (request.query_params.get("per_page") or "").strip()
+    if raw_per_page.isdigit():
+        per_page = max(1, min(int(raw_per_page), 100))
+    with get_db() as connection:
+        tracks, filters, pagination = fetch_tracks(connection, request, get_lang(request), per_page)
+    return JSONResponse(
+        {
+            "items": [serialize_api_track(track) for track in tracks],
+            "filters": filters,
+            "page": pagination["page"],
+            "total_pages": pagination["total_pages"],
+            "total_items": pagination["total_items"],
+            "per_page": pagination["per_page"],
+            "has_next": pagination["page"] < pagination["total_pages"],
+        }
+    )
+
+
+@app.get("/api/tracks/{track_id}")
+async def api_track_detail(request: Request, track_id: int) -> JSONResponse:
+    lang = get_lang(request)
+    api_user = current_user_any(request)
+    if api_user is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not api_user["is_active"]:
+        raise HTTPException(status_code=403, detail=text_for(lang)["user_disabled"])
+    with get_db() as connection:
+        row = connection.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail=text_for(lang)["track_not_found"])
+        uploader_map = build_uploader_map(connection, [int(row["id"])])
+    track = dict(row)
+    track["duration_label"] = human_duration(row["duration_seconds"])
+    track["specs_label"] = human_specs(row)
+    track["size_label"] = human_size(row["file_size"])
+    track["uploaded_label"] = relative_uploaded(row["uploaded_at"], lang)
+    track["cover_url"] = f"/covers/{row['cover_path']}"
+    names = uploader_map.get(int(row["id"]), [str(row["uploader"])])
+    track["uploader_display"], track["uploader_full"] = format_uploader_display(names)
+    return JSONResponse(serialize_api_track(track))
+
+
+@app.post("/api/auth/login")
+async def api_auth_login(request: Request) -> JSONResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid json") from None
+    username_value = str(payload.get("username") or "").strip()[:64]
+    password = str(payload.get("password") or "")
+    enforce_login_rate_limit(request, username_value)
+    with get_db() as connection:
+        user = connection.execute(
+            "SELECT * FROM users WHERE username = ?",
+            (username_value,),
+        ).fetchone()
+    if user is None or not verify_password(user["password"], password):
+        record_login_log(
+            request=request,
+            attempted_username=username_value,
+            user=None,
+            success=False,
+            ip_changed=False,
+            cell_lookup_status="api_login_failed",
+            cell_lookup_address="",
+            cell_lookup_payload="",
+        )
+        raise HTTPException(status_code=401, detail=t["invalid_login"])
+    if not user["is_active"]:
+        raise HTTPException(status_code=403, detail=t["user_disabled"])
+    record_login_log(
+        request=request,
+        attempted_username=username_value,
+        user=user,
+        success=True,
+        ip_changed=False,
+        cell_lookup_status="api_login",
+        cell_lookup_address="",
+        cell_lookup_payload="",
+    )
+    return JSONResponse(
+        {"token": issue_api_token(user["username"]), "username": user["username"]}
+    )
+
+
+@app.post("/api/auth/signup")
+async def api_auth_signup(request: Request) -> JSONResponse:
+    lang = get_lang(request)
+    t = text_for(lang)
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid json") from None
+    username_value = str(payload.get("username") or "").strip()[:64]
+    password = str(payload.get("password") or "")
+    enforce_signup_rate_limit(request, username_value)
+    if not username_value or not password:
+        raise HTTPException(status_code=400, detail=t["invalid_login"])
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="password must be at least 8 characters")
+    with get_db() as connection:
+        exists = connection.execute(
+            "SELECT id FROM users WHERE username = ?",
+            (username_value,),
+        ).fetchone()
+        if exists is not None:
+            raise HTTPException(status_code=409, detail=t["signup_username_exists"])
+        connection.execute(
+            """
+            INSERT INTO users (username, password, is_admin, is_active, created_at)
+            VALUES (?, ?, 0, 1, ?)
+            """,
+            (username_value, hash_password(password), now_utc().isoformat()),
+        )
+    return JSONResponse(
+        {"token": issue_api_token(username_value), "username": username_value},
+        status_code=201,
+    )
+
+
+@app.get("/api/auth/me")
+async def api_auth_me(request: Request) -> JSONResponse:
+    user = current_user_any(request)
+    if user is None or not user["is_active"]:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    return JSONResponse(
+        {"username": user["username"], "is_admin": bool(user["is_admin"])}
+    )
+
+
+# Per-user synced collections (favorites, playlists, history, ...). Each is stored as one
+# opaque JSON blob keyed by (username, name); the client owns the shape. Last write wins.
+USERDATA_COLLECTIONS = {"library", "favorites", "history", "playlists", "pinned", "folders"}
+MAX_USERDATA_BYTES = env_int("FLACDIUM_MAX_USERDATA_BYTES", 4 * 1024 * 1024)
+
+
+def require_active_api_user(request: Request) -> sqlite3.Row:
+    user = current_user_any(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not user["is_active"]:
+        raise HTTPException(status_code=403, detail=text_for(get_lang(request))["user_disabled"])
+    return user
+
+
+@app.get("/api/userdata/{name}")
+async def api_userdata_get(request: Request, name: str) -> JSONResponse:
+    user = require_active_api_user(request)
+    if name not in USERDATA_COLLECTIONS:
+        raise HTTPException(status_code=404, detail="unknown collection")
+    with get_db() as connection:
+        row = connection.execute(
+            "SELECT data FROM user_collections WHERE username = ? AND name = ?",
+            (user["username"], name),
+        ).fetchone()
+    data = json.loads(row["data"]) if row else None
+    return JSONResponse({"name": name, "data": data})
+
+
+@app.put("/api/userdata/{name}")
+async def api_userdata_put(request: Request, name: str) -> JSONResponse:
+    user = require_active_api_user(request)
+    if name not in USERDATA_COLLECTIONS:
+        raise HTTPException(status_code=404, detail="unknown collection")
+    body = await request.body()
+    if len(body) > MAX_USERDATA_BYTES:
+        raise HTTPException(status_code=413, detail="collection too large")
+    try:
+        payload = json.loads(body) if body else None
+    except (json.JSONDecodeError, ValueError):
+        raise HTTPException(status_code=400, detail="invalid json") from None
+    serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    with get_db() as connection:
+        connection.execute(
+            """
+            INSERT INTO user_collections (username, name, data, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(username, name) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at
+            """,
+            (user["username"], name, serialized, now_utc().isoformat()),
+        )
+    return JSONResponse({"name": name, "ok": True})
+
+
 @app.get("/download/{track_id}")
 async def download(request: Request, track_id: int) -> FileResponse:
     lang = get_lang(request)
-    user = current_user(request)
+    user = current_user_any(request)
     if user is None:
         raise HTTPException(status_code=403, detail=text_for(lang)["login_needed_notice"])
     if not user["is_active"]:
@@ -5459,7 +5766,7 @@ async def download(request: Request, track_id: int) -> FileResponse:
 @app.get("/preview/{track_id}")
 async def preview_track(request: Request, track_id: int) -> FileResponse:
     lang = get_lang(request)
-    user = current_user(request)
+    user = current_user_any(request)
     if user is None:
         raise HTTPException(status_code=403, detail=text_for(lang)["login_needed_notice"])
     if not user["is_active"]:
@@ -5483,7 +5790,7 @@ async def preview_track(request: Request, track_id: int) -> FileResponse:
 @app.get("/download-bundle")
 async def download_bundle(request: Request, ids: str = "") -> FileResponse:
     lang = get_lang(request)
-    user = current_user(request)
+    user = current_user_any(request)
     if user is None:
         raise HTTPException(status_code=403, detail=text_for(lang)["login_needed_notice"])
     if not user["is_active"]:
