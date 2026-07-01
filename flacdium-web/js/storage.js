@@ -1065,6 +1065,43 @@ export const visualizerSettings = {
     },
 };
 
+// Bit-perfect (bypass-DSP) playback settings.
+// When enabled, playback avoids the Web Audio graph entirely so the browser streams the
+// decoded FLAC raw to the OS mixer (bit-transparent as far as a sandboxed page allows).
+export const bitPerfectSettings = {
+    ENABLED_KEY: 'bitperfect-enabled',
+    SINK_KEY: 'bitperfect-output-device',
+
+    isEnabled() {
+        try {
+            return localStorage.getItem(this.ENABLED_KEY) === 'true';
+        } catch {
+            return false;
+        }
+    },
+    setEnabled(enabled) {
+        try {
+            localStorage.setItem(this.ENABLED_KEY, enabled ? 'true' : 'false');
+        } catch {
+            /* ignore */
+        }
+    },
+    getSinkId() {
+        try {
+            return localStorage.getItem(this.SINK_KEY) || '';
+        } catch {
+            return '';
+        }
+    },
+    setSinkId(id) {
+        try {
+            localStorage.setItem(this.SINK_KEY, id || '');
+        } catch {
+            /* ignore */
+        }
+    },
+};
+
 export const equalizerSettings = {
     ENABLED_KEY: 'equalizer-enabled',
     GAINS_KEY: 'equalizer-gains',

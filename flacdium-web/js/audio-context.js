@@ -3,7 +3,7 @@
 // Supports 3-32 parametric EQ bands
 
 import { isIos } from './platform-detection.js';
-import { equalizerSettings, monoAudioSettings } from './storage.js';
+import { equalizerSettings, monoAudioSettings, bitPerfectSettings } from './storage.js';
 
 // Generate frequency array for given number of bands using logarithmic spacing
 function generateFrequencies(bandCount, minFreq = 20, maxFreq = 20000) {
@@ -100,6 +100,9 @@ class AudioContextManager {
         this.isInitialized = false;
         this.isEQEnabled = false;
         this.isMonoAudioEnabled = false;
+        // Bit-perfect (bypass-DSP): when true, skip the whole Web Audio graph so the
+        // <audio> element streams raw to the OS mixer (no resample, no gain node).
+        this.isBitPerfect = bitPerfectSettings.isEnabled();
         this.monoMergerNode = null;
         this.audio = null;
         this.currentVolume = 1.0;
@@ -301,6 +304,15 @@ class AudioContextManager {
 
         this.audio = audioElement;
 
+        // Bit-perfect mode: never create a MediaElementSource for this element. Once an
+        // element is routed through Web Audio the routing is irreversible, so leaving it
+        // untouched here is what keeps playback bit-transparent (raw element -> OS mixer).
+        this.isBitPerfect = bitPerfectSettings.isEnabled();
+        if (this.isBitPerfect) {
+            console.log('[AudioContext] Bit-perfect mode: skipping Web Audio (raw element passthrough)');
+            return;
+        }
+
         if (isIos) {
             console.log('[AudioContext] Skipping Web Audio initialization on iOS for lock screen compatibility');
             return;
@@ -308,7 +320,11 @@ class AudioContextManager {
 
         try {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
-            const highResOptions = { sampleRate: 192000, latencyHint: 'playback' };
+            // Do NOT force a sample rate. Letting the context adopt the output device's
+            // native rate avoids a gratuitous upsample (the old 192000 forced every 44.1k
+            // FLAC through a resampler). The OS may still resample to the device, but we no
+            // longer add an extra Web Audio resample on top.
+            const highResOptions = { latencyHint: 'playback' };
 
             try {
                 this.audioContext = new AudioContext(highResOptions);
@@ -391,6 +407,20 @@ class AudioContextManager {
                 this.source.disconnect();
             } catch {
                 // node may already be disconnected
+            }
+
+            // Bit-perfect fallback: this element was already routed through Web Audio before
+            // the user turned bit-perfect on (MediaElementSource can't be undone). Route the
+            // source straight to the destination with no DSP/gain/analyser — bit-transparent
+            // when the context rate matches the device rate. A page reload restores fully raw.
+            if (this.isBitPerfect) {
+                this.outputNode?.disconnect();
+                this.volumeNode?.disconnect();
+                this.analyser?.disconnect();
+                this.monoMergerNode?.disconnect();
+                this.source.connect(this.audioContext.destination);
+                this._notifyGraphChange();
+                return;
             }
             this.outputNode.disconnect();
             if (this.volumeNode) {
@@ -534,6 +564,29 @@ class AudioContextManager {
             const now = this.audioContext.currentTime;
             this.volumeNode.gain.setTargetAtTime(this.currentVolume, now, 0.01);
         }
+    }
+
+    /**
+     * Toggle bit-perfect (bypass-DSP) mode.
+     * Returns { applied, needsReload }:
+     *  - not yet initialized  -> nothing to undo; boot-time init() will honor the setting -> applied clean.
+     *  - already initialized  -> element is already MES-routed; we switch the graph to a
+     *    direct passthrough now (degraded but transparent) and ask for a reload for fully raw.
+     */
+    setBitPerfect(enabled) {
+        this.isBitPerfect = !!enabled;
+        bitPerfectSettings.setEnabled(this.isBitPerfect);
+
+        if (this.isInitialized) {
+            // EQ/mono are meaningless in bit-perfect; keep their flags but the graph ignores them.
+            this._connectGraph();
+            return { applied: true, needsReload: this.isBitPerfect };
+        }
+        return { applied: true, needsReload: false };
+    }
+
+    isBitPerfectActive() {
+        return this.isBitPerfect;
     }
 
     /**

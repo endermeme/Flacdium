@@ -280,6 +280,83 @@ export class Player {
         this.applyAudioEffects();
     }
 
+    /**
+     * Route audio output to a specific device (bit-perfect device selection).
+     * setSinkId only exists on secure origins in Chromium; ignored elsewhere.
+     */
+    async setOutputDevice(sinkId) {
+        const targets = [this.audio, this.video].filter(Boolean);
+        for (const el of targets) {
+            if (typeof el.setSinkId !== 'function') continue;
+            try {
+                await el.setSinkId(sinkId || '');
+            } catch (e) {
+                console.warn('[Player] setSinkId failed:', e);
+            }
+        }
+    }
+
+    /**
+     * Read the default output device's native sample rate (Hz) so the bit-perfect badge can
+     * warn when the OS will resample. Cached; a throwaway context is closed immediately.
+     */
+    getOutputSampleRate() {
+        if (this._outputSampleRate) return this._outputSampleRate;
+        try {
+            const Ctx = window.AudioContext || window.webkitAudioContext;
+            const probe = new Ctx();
+            this._outputSampleRate = probe.sampleRate;
+            probe.close?.();
+        } catch {
+            this._outputSampleRate = 0;
+        }
+        return this._outputSampleRate;
+    }
+
+    /**
+     * Update the now-playing bit-perfect badge with the track's real specs and a resample
+     * warning. Integer-ratio families (44.1k↔88.2k, 48k↔96k) pass through cleanly; a
+     * mismatched device rate means the OS mixer resamples (browser can't do exclusive mode).
+     */
+    updateAudioSpecsBadge(track) {
+        const badge = document.getElementById('now-playing-audio-badge');
+        if (!badge) return;
+
+        const rate = Number(track?.sampleRate) || 0;
+        const bits = Number(track?.bitDepth) || 0;
+        if (!rate) {
+            badge.style.display = 'none';
+            return;
+        }
+
+        const rateLabel = (rate / 1000).toString().replace(/\.0$/, '') + 'kHz';
+        const specText = bits ? `${bits}-bit · ${rateLabel}` : rateLabel;
+
+        const bitPerfect = audioContextManager.isBitPerfectActive?.();
+        const deviceRate = this.getOutputSampleRate();
+        // Same integer family (share a base of 44100 or 48000) => no resample needed.
+        const sameFamily = deviceRate && rate && deviceRate % rate === 0;
+
+        let mode;
+        if (!bitPerfect) {
+            mode = 'DSP';
+        } else if (!deviceRate || sameFamily) {
+            mode = 'Bit-perfect';
+        } else {
+            mode = 'Resample';
+        }
+
+        badge.textContent = `${specText} · ${mode}`;
+        badge.dataset.mode = mode;
+        badge.title =
+            mode === 'Resample'
+                ? `Thiết bị ra đang ở ${(deviceRate / 1000).toString().replace(/\.0$/, '')}kHz — OS sẽ resample. Đặt sample rate hệ thống = ${rateLabel} để bit-perfect.`
+                : mode === 'Bit-perfect'
+                  ? 'Phát raw, không qua DSP — bit-transparent tới OS mixer.'
+                  : 'Đang qua Web Audio (EQ/volume). Bật Bit-perfect trong Cài đặt để bypass.';
+        badge.style.display = 'inline-flex';
+    }
+
     loadQueueState() {
         const savedState = queueManager.getQueue();
         if (savedState) {
@@ -911,6 +988,7 @@ export class Player {
         this.updatePlayingTrackIndicator();
         this.updateMediaSession(track);
         this.updateMediaSessionPlaybackState();
+        this.updateAudioSpecsBadge(track);
 
         try {
             let streamUrl;

@@ -27,6 +27,7 @@ import {
     monoAudioSettings,
     exponentialVolumeSettings,
     audioEffectsSettings,
+    bitPerfectSettings,
     settingsUiState,
     pwaUpdateSettings,
     contentBlockingSettings,
@@ -1137,6 +1138,55 @@ export async function initializeSettings(scrobbler, player, api, ui) {
         replayGainPreamp.addEventListener('change', (e) => {
             replayGainSettings.setPreamp(parseFloat(e.target.value) || 3);
             player.applyReplayGain();
+        });
+    }
+
+    // Bit-perfect (bypass-DSP) toggle
+    const bitPerfectToggle = document.getElementById('bitperfect-toggle');
+    if (bitPerfectToggle) {
+        bitPerfectToggle.checked = bitPerfectSettings.isEnabled();
+        bitPerfectToggle.addEventListener('change', (e) => {
+            const enabled = e.target.checked;
+            const result = audioContextManager.setBitPerfect(enabled);
+            // Refresh the now-playing badge to reflect the new mode immediately.
+            if (player.currentTrack) player.updateAudioSpecsBadge(player.currentTrack);
+            if (result?.needsReload) {
+                import('./downloads.js')
+                    .then((m) => m.showNotification('Bit-perfect bật. Tải lại trang để phát hoàn toàn nguyên bản.'))
+                    .catch(() => {});
+            }
+        });
+    }
+
+    // Audio output device picker (bit-perfect device selection via setSinkId)
+    const outputDeviceSelect = document.getElementById('audio-output-device');
+    if (outputDeviceSelect && navigator.mediaDevices?.enumerateDevices) {
+        const populateDevices = async () => {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const outputs = devices.filter((d) => d.kind === 'audiooutput');
+                const saved = bitPerfectSettings.getSinkId();
+                outputDeviceSelect.innerHTML = '<option value="">Mặc định hệ thống</option>';
+                outputs.forEach((d, i) => {
+                    const opt = document.createElement('option');
+                    opt.value = d.deviceId;
+                    opt.textContent = d.label || `Thiết bị ra ${i + 1}`;
+                    if (d.deviceId === saved) opt.selected = true;
+                    outputDeviceSelect.appendChild(opt);
+                });
+            } catch (err) {
+                console.warn('[Settings] enumerateDevices failed:', err);
+            }
+        };
+        populateDevices();
+        navigator.mediaDevices.addEventListener?.('devicechange', populateDevices);
+        // Re-apply the saved output device on boot so playback starts on the chosen DAC.
+        const savedSink = bitPerfectSettings.getSinkId();
+        if (savedSink) player.setOutputDevice(savedSink);
+        outputDeviceSelect.addEventListener('change', async (e) => {
+            const sinkId = e.target.value;
+            bitPerfectSettings.setSinkId(sinkId);
+            await player.setOutputDevice(sinkId);
         });
     }
 

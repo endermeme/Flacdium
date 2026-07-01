@@ -105,6 +105,11 @@ export function mapTrack(f) {
         audioUrl: stream,
         isFlacdium: true,
         flacSpecs: f.specs_label || '',
+        // Native source specs (from backend serialize_api_track) — used by the bit-perfect
+        // badge to show real rate/bit depth and warn when the OS will resample.
+        sampleRate: f.sample_rate || 0,
+        bitDepth: f.bit_depth || 0,
+        channels: f.channels || 0,
         downloadUrl: base + (f.download_url || '/download/' + f.id),
     };
 }

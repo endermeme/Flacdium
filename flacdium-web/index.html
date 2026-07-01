@@ -3936,6 +3936,29 @@
                                 </div>
                                 <div class="setting-item">
                                     <div class="info">
+                                        <span class="label">Bit-perfect (bỏ qua DSP)</span>
+                                        <span class="description"
+                                            >Phát FLAC nguyên bản, không qua Web Audio (tắt EQ, mono, hiệu ứng,
+                                            visualizer). Bit-transparent tới OS mixer. Bật/tắt xong nên tải lại
+                                            trang.</span
+                                        >
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="bitperfect-toggle" />
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <div class="setting-item">
+                                    <div class="info">
+                                        <span class="label">Thiết bị ra</span>
+                                        <span class="description">Chọn DAC / cổng âm thanh để phát</span>
+                                    </div>
+                                    <select id="audio-output-device" class="settings-select">
+                                        <option value="">Mặc định hệ thống</option>
+                                    </select>
+                                </div>
+                                <div class="setting-item">
+                                    <div class="info">
                                         <span class="label">Âm thanh mono</span>
                                         <span class="description">Gộp kênh trái và phải thành mono</span>
                                     </div>
@@ -5364,6 +5387,12 @@
                         </div>
                         <span id="total-duration">0:00</span>
                     </div>
+                    <span
+                        id="now-playing-audio-badge"
+                        class="audio-specs-badge"
+                        style="display: none"
+                        title=""
+                    ></span>
                 </div>
                 <div class="volume-controls">
                     <div class="player-actions-row">
